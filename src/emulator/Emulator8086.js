@@ -14,6 +14,10 @@ export class Emulator8086 {
       di: 0,
       bp: 0,
       sp: 0xFFFF,
+      cs: 0,
+      ds: 0,
+      ss: 0,
+      es: 0,
     };
 
     this.flags = {
@@ -71,8 +75,23 @@ export class Emulator8086 {
 
     // --- PASS 1: Scan for org, data definitions, and labels ---
     for (let line of lines) {
-      // Ignore segment declarations
-      if (/^\s*\.(model|stack|data|code)\b/i.test(line)) {
+      // Ignore segment declarations and other directives
+      if (
+        /^\s*\.(model|stack|data|code)\b/i.test(line) ||
+        /^\s*(assume|end)\b/i.test(line) ||
+        /\b(segment|ends)\b/i.test(line)
+      ) {
+        continue;
+      }
+
+      // Handle procedure declarations as labels
+      const procMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s+proc\b/i);
+      if (procMatch) {
+        const labelName = procMatch[1].toLowerCase();
+        this.symbolTable[labelName] = instructionIndex;
+        continue;
+      }
+      if (/\b(endp)\b/i.test(line)) {
         continue;
       }
 
@@ -156,7 +175,13 @@ export class Emulator8086 {
     const instructions = [];
     for (let line of lines) {
       // Skip declarations and directives
-      if (/^\s*\.(model|stack|data|code)\b/i.test(line) || /^\s*org\b/i.test(line)) {
+      if (
+        /^\s*\.(model|stack|data|code)\b/i.test(line) ||
+        /^\s*org\b/i.test(line) ||
+        /^\s*(assume|end)\b/i.test(line) ||
+        /\b(segment|ends|endp)\b/i.test(line) ||
+        /^([a-zA-Z_][a-zA-Z0-9_]*)\s+proc\b/i.test(line)
+      ) {
         continue;
       }
       if (line.match(/^(?:([a-zA-Z_][a-zA-Z0-9_]*)\s+)?(db|dw|dd)\s+(.+)$/i)) {
@@ -181,7 +206,8 @@ export class Emulator8086 {
 
           // 2. Replace label occurrences with their values from the symbol table
           for (const [symbol, val] of Object.entries(this.symbolTable)) {
-            const regex = new RegExp(`\\b${symbol}\\b`, 'gi');
+            const escapedSymbol = symbol.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            const regex = new RegExp(`(?<![a-zA-Z0-9_@])${escapedSymbol}(?![a-zA-Z0-9_@])`, 'gi');
             resolved = resolved.replace(regex, val);
           }
           return resolved;
@@ -222,12 +248,28 @@ export class Emulator8086 {
     return this.output;
   }
 
+  step() {
+    if (this.ip >= this.code.length) {
+      return { halted: true };
+    }
+    const instruction = this.code[this.ip];
+    this.execute(instruction);
+    if (this.ip < this.code.length) {
+      this.ip++;
+    }
+    const halted = instruction.instr === 'hlt' || this.ip >= this.code.length;
+    return { halted, instruction };
+  }
+
   execute(instruction) {
     const { instr, args } = instruction;
 
     switch (instr) {
       case 'mov':
         this.mov(args[0], args[1]);
+        break;
+      case 'lea':
+        this.lea(args[0], args[1]);
         break;
       case 'add':
         this.add(args[0], args[1]);
@@ -241,11 +283,66 @@ export class Emulator8086 {
       case 'jmp':
         this.jmp(args[0]);
         break;
+      case 'je':
       case 'jz':
         if (this.flags.zf) this.jmp(args[0]);
         break;
+      case 'jne':
       case 'jnz':
         if (!this.flags.zf) this.jmp(args[0]);
+        break;
+      case 'js':
+        if (this.flags.sf) this.jmp(args[0]);
+        break;
+      case 'jns':
+        if (!this.flags.sf) this.jmp(args[0]);
+        break;
+      case 'jc':
+      case 'jb':
+        if (this.flags.cf) this.jmp(args[0]);
+        break;
+      case 'jnc':
+      case 'jae':
+        if (!this.flags.cf) this.jmp(args[0]);
+        break;
+      case 'jo':
+        if (this.flags.of) this.jmp(args[0]);
+        break;
+      case 'jno':
+        if (!this.flags.of) this.jmp(args[0]);
+        break;
+      case 'ja':
+      case 'jnbe':
+        if (!this.flags.cf && !this.flags.zf) this.jmp(args[0]);
+        break;
+      case 'jbe':
+      case 'jna':
+        if (this.flags.cf || this.flags.zf) this.jmp(args[0]);
+        break;
+      case 'jg':
+      case 'jnle':
+        if (!this.flags.zf && (this.flags.sf === this.flags.of)) this.jmp(args[0]);
+        break;
+      case 'jge':
+      case 'jnl':
+        if (this.flags.sf === this.flags.of) this.jmp(args[0]);
+        break;
+      case 'jl':
+      case 'jnge':
+        if (this.flags.sf !== this.flags.of) this.jmp(args[0]);
+        break;
+      case 'jle':
+      case 'jng':
+        if (this.flags.zf || (this.flags.sf !== this.flags.of)) this.jmp(args[0]);
+        break;
+      case 'loop':
+        this.loop(args[0]);
+        break;
+      case 'call':
+        this.call(args[0]);
+        break;
+      case 'ret':
+        this.ret();
         break;
       case 'xor':
         this.xor(args[0], args[1]);
@@ -289,12 +386,25 @@ export class Emulator8086 {
     this.output.push(`mov ${dest}, ${src} → ${dest} = 0x${value.toString(16).toUpperCase()}`);
   }
 
+  lea(dest, src) {
+    let addressVal;
+    src = src.trim().toLowerCase();
+    if (src.includes('[') && src.endsWith(']')) {
+      const bracketMatch = src.match(/\[.+\]/);
+      addressVal = this.parseAddress(bracketMatch[0]);
+    } else {
+      addressVal = this.getValue(src);
+    }
+    this.setValue(dest, addressVal);
+    this.output.push(`lea ${dest}, ${src} → ${dest} = 0x${addressVal.toString(16).toUpperCase()}`);
+  }
+
   add(dest, src) {
     const destVal = this.getValue(dest);
     const srcVal = this.getValue(src, dest);
     const result = (destVal + srcVal) & 0xFFFF;
     this.setValue(dest, result, src);
-    this.updateFlags(result);
+    this.updateFlags(result, destVal, srcVal, 'add');
     this.output.push(`add ${dest}, ${src} → ${dest} = 0x${result.toString(16).toUpperCase()}`);
   }
 
@@ -303,7 +413,7 @@ export class Emulator8086 {
     const srcVal = this.getValue(src, dest);
     const result = (destVal - srcVal) & 0xFFFF;
     this.setValue(dest, result, src);
-    this.updateFlags(result);
+    this.updateFlags(result, destVal, srcVal, 'sub');
     this.output.push(`sub ${dest}, ${src} → ${dest} = 0x${result.toString(16).toUpperCase()}`);
   }
 
@@ -311,7 +421,7 @@ export class Emulator8086 {
     const destVal = this.getValue(dest);
     const srcVal = this.getValue(src, dest);
     const result = (destVal - srcVal) & 0xFFFF;
-    this.updateFlags(result);
+    this.updateFlags(result, destVal, srcVal, 'sub');
     this.output.push(`cmp ${dest}, ${src} → flags updated`);
   }
 
@@ -320,7 +430,9 @@ export class Emulator8086 {
     const srcVal = this.getValue(src, dest);
     const result = destVal ^ srcVal;
     this.setValue(dest, result, src);
-    this.updateFlags(result);
+    this.flags.cf = 0;
+    this.flags.of = 0;
+    this.updateFlags(result, 0, 0, 'logic');
     this.output.push(`xor ${dest}, ${src} → ${dest} = 0x${result.toString(16).toUpperCase()}`);
   }
 
@@ -329,7 +441,9 @@ export class Emulator8086 {
     const srcVal = this.getValue(src, dest);
     const result = destVal & srcVal;
     this.setValue(dest, result, src);
-    this.updateFlags(result);
+    this.flags.cf = 0;
+    this.flags.of = 0;
+    this.updateFlags(result, 0, 0, 'logic');
     this.output.push(`and ${dest}, ${src} → ${dest} = 0x${result.toString(16).toUpperCase()}`);
   }
 
@@ -338,7 +452,9 @@ export class Emulator8086 {
     const srcVal = this.getValue(src, dest);
     const result = destVal | srcVal;
     this.setValue(dest, result, src);
-    this.updateFlags(result);
+    this.flags.cf = 0;
+    this.flags.of = 0;
+    this.updateFlags(result, 0, 0, 'logic');
     this.output.push(`or ${dest}, ${src} → ${dest} = 0x${result.toString(16).toUpperCase()}`);
   }
 
@@ -346,7 +462,7 @@ export class Emulator8086 {
     const val = this.getValue(dest);
     const result = (val + 1) & 0xFFFF;
     this.setValue(dest, result);
-    this.updateFlags(result);
+    this.updateFlags(result, val, 1, 'add');
     this.output.push(`inc ${dest} → ${dest} = 0x${result.toString(16).toUpperCase()}`);
   }
 
@@ -354,7 +470,7 @@ export class Emulator8086 {
     const val = this.getValue(dest);
     const result = (val - 1) & 0xFFFF;
     this.setValue(dest, result);
-    this.updateFlags(result);
+    this.updateFlags(result, val, 1, 'sub');
     this.output.push(`dec ${dest} → ${dest} = 0x${result.toString(16).toUpperCase()}`);
   }
 
@@ -387,6 +503,31 @@ export class Emulator8086 {
         throw new Error(`Label not found: ${label}`);
       }
     }
+  }
+
+  loop(label) {
+    const cxVal = (this.registers.cx - 1) & 0xFFFF;
+    this.registers.cx = cxVal;
+    this.output.push(`loop ${label} → CX = 0x${cxVal.toString(16).toUpperCase()}`);
+    if (cxVal !== 0) {
+      this.jmp(label);
+    }
+  }
+
+  call(label) {
+    const nextIp = this.ip + 1;
+    this.registers.sp = (this.registers.sp - 2) & 0xFFFF;
+    this.memory[this.registers.sp] = nextIp & 0xFF;
+    this.memory[(this.registers.sp + 1) & 0xFFFF] = (nextIp >> 8) & 0xFF;
+    this.output.push(`call ${label} → push return IP = ${nextIp}`);
+    this.jmp(label);
+  }
+
+  ret() {
+    const value = this.memory[this.registers.sp] | (this.memory[(this.registers.sp + 1) & 0xFFFF] << 8);
+    this.registers.sp = (this.registers.sp + 2) & 0xFFFF;
+    this.ip = value - 1;
+    this.output.push(`ret → pop return IP = ${value}`);
   }
 
   interrupt(intNum) {
@@ -555,15 +696,27 @@ export class Emulator8086 {
     return result & 0xFFFF;
   }
 
-  updateFlags(result) {
+  updateFlags(result, destVal = 0, srcVal = 0, opType = 'add') {
     // Zero Flag
-    this.flags.zf = result === 0 ? 1 : 0;
+    this.flags.zf = (result & 0xFFFF) === 0 ? 1 : 0;
 
     // Sign Flag (bit 15 for 16-bit)
     this.flags.sf = (result & 0x8000) ? 1 : 0;
 
-    // Carry Flag (overflow from 16-bit)
-    this.flags.cf = result > 0xFFFF ? 1 : 0;
+    // Carry Flag & Overflow Flag
+    if (opType === 'add') {
+      this.flags.cf = (destVal + srcVal) > 0xFFFF ? 1 : 0;
+      const destSign = (destVal & 0x8000) >> 15;
+      const srcSign = (srcVal & 0x8000) >> 15;
+      const resSign = (result & 0x8000) >> 15;
+      this.flags.of = (destSign === srcSign && destSign !== resSign) ? 1 : 0;
+    } else if (opType === 'sub') {
+      this.flags.cf = destVal < srcVal ? 1 : 0;
+      const destSign = (destVal & 0x8000) >> 15;
+      const srcSign = (srcVal & 0x8000) >> 15;
+      const resSign = (result & 0x8000) >> 15;
+      this.flags.of = (destSign !== srcSign && destSign !== resSign) ? 1 : 0;
+    }
 
     // Parity Flag (even number of 1s in low byte)
     const lowByte = result & 0xFF;

@@ -25,7 +25,7 @@ export default defineConfig({
     target: 'esnext',
     outDir: 'dist',
     assetsDir: 'assets',
-    minify: 'terser',
+    minify: 'esbuild',
     rollupOptions: {
       input: resolve(__dirname, 'index.html'),
     },

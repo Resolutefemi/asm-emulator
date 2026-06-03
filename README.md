@@ -61,8 +61,8 @@ sudo apt-get install libssl-dev libgtk-3-dev libwebkit2gtk-4.0-dev
 
 ```bash
 # Clone repo
-git clone https://github.com/yourusername/renance-playground.git
-cd renance-playground
+git clone https://github.com/Resolutefemi/ams-emulator.git
+
 
 # Install dependencies
 npm install

@@ -775,36 +775,98 @@ html, body, #root {
 .terminal-body {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  padding: 14px;
+  font-family: 'Fira Code', 'Courier New', Courier, monospace;
+  font-size: 13px;
   line-height: 1.6;
-  background: var(--bg-panel);
+  background: #06090f; /* Pitch black terminal background */
+  color: #c9d1d9;
 }
 
 .terminal-empty {
-  color: var(--text-tertiary);
+  color: #8b949e;
   font-style: italic;
 }
 
 .terminal-line {
   display: flex;
+  flex-direction: column;
+  margin-bottom: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.terminal-output-line {
+  margin-bottom: 2px;
+}
+
+.terminal-output-line.error,
+.terminal-output-line.warning {
+  color: #ff7b72; /* Git Bash Red */
+}
+
+.terminal-output-line.success {
+  color: #56e36d; /* Neon Green */
+}
+
+.terminal-output-line.info {
+  color: #8b949e; /* Muted Gray */
+}
+
+.terminal-output-line.welcome {
+  color: #58a6ff; /* Cyan/blue */
+}
+
+/* Prompt Elements */
+.bash-prompt {
+  display: inline-block;
+  margin-bottom: 2px;
+}
+
+.prompt-user {
+  color: #4af626; /* Git Bash Username Green */
+  font-weight: bold;
+}
+
+.prompt-mingw {
+  color: #d33682; /* MINGW64 Purple */
+  font-weight: bold;
+}
+
+.prompt-path {
+  color: #268bd2; /* Directory Blue */
+  font-weight: bold;
+}
+
+.prompt-branch {
+  color: #b58900; /* Branch Yellow */
+}
+
+.prompt-symbol {
+  color: #ffffff;
+  font-weight: bold;
+}
+
+/* Input line styling */
+.terminal-input-line {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
+  width: 100%;
 }
 
-.term-prompt {
-  color: var(--primary);
-  font-weight: 700;
-  min-width: 16px;
-}
-
-.term-output {
-  color: var(--success);
+.terminal-input-field {
   flex: 1;
-  word-break: break-word;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: 'Fira Code', 'Courier New', Courier, monospace;
+  font-size: 13px;
+  color: #ffffff;
+  caret-color: #4af626; /* Flashing green cursor */
+  width: 100%;
 }
+
 
 /* ========== MOBILE ELEMENTS ========== */
 .mobile-bottom-bar {
@@ -1097,3 +1159,297 @@ html, body, #root {
     font-size: 12px;
   }
 }
+
+/* New compatibility additions styling */
+.select-template-final {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.select-template-final:hover {
+  background: var(--bg-hover);
+  border-color: var(--success);
+  box-shadow: 0 0 10px rgba(63, 185, 80, 0.2);
+}
+
+.btn-step {
+  background: var(--warning) !important;
+  color: var(--bg-darkest) !important;
+  font-weight: 600;
+}
+
+.btn-step:hover {
+  background: #e2b033 !important;
+  box-shadow: 0 0 12px rgba(210, 153, 34, 0.4);
+}
+
+.memory-header-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.memory-search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.memory-search-input {
+  background: var(--bg-darkest);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  width: 130px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.memory-search-input:focus {
+  border-color: var(--success);
+}
+
+/* VS Code Sidebar File Explorer & Credit branding styles */
+.brand-title-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.by-resolute-femi {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  opacity: 0.8;
+  margin-left: 2px;
+}
+
+.sidebar-explorer {
+  width: 220px;
+  min-width: 200px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  z-index: 10;
+}
+
+.explorer-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-darkest);
+}
+
+.explorer-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.explorer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.explorer-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.explorer-action-btn:hover {
+  color: var(--success);
+  background: var(--bg-hover);
+}
+
+.explorer-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 0;
+}
+
+.tree-folder-group {
+  margin-bottom: 8px;
+}
+
+.tree-folder-header {
+  padding: 6px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tree-folder-children {
+  padding-left: 8px;
+  border-left: 1px dashed var(--border);
+  margin-left: 20px;
+}
+
+.tree-file-item {
+  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 4px;
+  margin: 1px 6px;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.tree-file-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tree-file-item.active {
+  background: var(--bg-active);
+  color: var(--primary);
+  font-weight: 500;
+  border-left: 2px solid var(--primary);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.tree-icon {
+  font-size: 14px;
+}
+
+.tree-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Adjust Main content layout to be horizontal */
+.main-content {
+  display: flex;
+  flex-direction: row !important;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.editor-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-right: 1px solid var(--border);
+}
+
+/* VS Code / Acode Syntax Highlighting Theme Colors */
+.cm-asm-comment {
+  color: #6a9955 !important; /* VS Code green comment */
+  font-style: italic !important;
+}
+
+.cm-asm-instruction {
+  color: #c586c0 !important; /* VS Code purple instruction */
+  font-weight: bold !important;
+}
+
+.cm-asm-register {
+  color: #9cdcfe !important; /* VS Code light blue register */
+}
+
+.cm-asm-number {
+  color: #b5cea8 !important; /* VS Code light green number */
+}
+
+.cm-asm-label {
+  color: #dcdcaa !important; /* VS Code yellow label/procedure */
+  font-weight: 600 !important;
+}
+
+.cm-asm-directive {
+  color: #569cd6 !important; /* VS Code blue directive */
+  font-weight: 500 !important;
+}
+
+/* Inline Explorer Input (VS Code Style) */
+.inline-explorer-input {
+  background: var(--bg-darkest);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 3px 6px;
+  width: 85%;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.inline-explorer-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+/* File explorer delete action button */
+.tree-item-delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  margin-left: auto;
+  opacity: 0;
+  transition: all 0.2s ease;
+  padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.tree-file-item:hover .tree-item-delete-btn,
+.tree-folder-header:hover .tree-item-delete-btn {
+  opacity: 1;
+}
+
+.tree-item-delete-btn:hover {
+  color: #ff7b72 !important; /* Red color on hover */
+  background: var(--bg-hover);
+}
+
