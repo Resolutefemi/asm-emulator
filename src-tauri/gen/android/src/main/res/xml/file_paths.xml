@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Cache files -->
+    <cache-path
+        name="cache"
+        path="/" />
+    
+    <!-- App files -->
+    <files-path
+        name="files"
+        path="/" />
+    
+    <!-- External cache -->
+    <external-cache-path
+        name="external_cache"
+        path="/" />
+    
+    <!-- External files -->
+    <external-files-path
+        name="external_files"
+        path="/" />
+    
+    <!-- External media -->
+    <external-media-path
+        name="external_media"
+        path="/" />
+</paths>

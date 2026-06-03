@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">10.0.0.0/8</domain>
+    </domain-config>
+    
+    <!-- Trust user-installed certificates -->
+    <trust-anchors>
+        <!-- System certificates -->
+        <certificates src="system" />
+        <!-- User certificates for development -->
+        <certificates src="user" />
+    </trust-anchors>
+</network-security-config>
