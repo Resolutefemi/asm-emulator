@@ -1,28 +1,22 @@
-; Simple Calculator Simulation
-; Set inputs in AL and BL, operator in CL:
-; CL = 1 (Add), CL = 2 (Subtract), CL = 3 (XOR)
-MOV AL, 15         ; Input 1
-MOV BL, 7          ; Input 2
-MOV CL, 1          ; Operator (1 = Add)
+.MODEL SMALL
+.STACK 100H
 
-CMP CL, 1
-JE DO_ADD
-CMP CL, 2
-JE DO_SUB
-CMP CL, 3
-JE DO_XOR
-JMP CALC_DONE
+.DATA
+    MSG DB 'How are you doing$'
 
-DO_ADD:
-    ADD AL, BL     ; Result in AL
-    JMP CALC_DONE
+.CODE
+MAIN PROC
+    ; Initialize data segment
+    MOV AX, @DATA
+    MOV DS, AX
 
-DO_SUB:
-    SUB AL, BL     ; Result in AL
-    JMP CALC_DONE
+    ; Display the string
+    LEA DX, MSG
+    MOV AH, 09H
+    INT 21H
 
-DO_XOR:
-    XOR AL, BL     ; Result in AL
-
-CALC_DONE:
-    HLT
+    ; Return control to DOS (Exit)
+    MOV AH, 4CH
+    INT 21H
+MAIN ENDP
+END MAIN
