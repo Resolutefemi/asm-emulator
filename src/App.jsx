@@ -29,9 +29,16 @@ end:
   });
 
   const [isRunning, setIsRunning] = useState(false);
-  const [activePanel, setActivePanel] = useState('cpu'); // cpu, memory, output
+  const [activePanel, setActivePanel] = useState('output'); // cpu, memory, output
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [errors, setErrors] = useState([]);
+  const [cpuStats, setCpuStats] = useState({ cycles: 0, memory: '0 KB', runtime: '0ms' });
+  
   const emulatorRef = useRef(new Emulator8086());
   const autoSaveTimerRef = useRef(null);
+  const lintTimerRef = useRef(null);
 
   // Auto-save to IndexedDB
   useEffect(() => {
@@ -43,30 +50,118 @@ end:
     return () => clearTimeout(autoSaveTimerRef.current);
   }, [code]);
 
+  // Real-time error detection
+  useEffect(() => {
+    clearTimeout(lintTimerRef.current);
+    lintTimerRef.current = setTimeout(() => {
+      validateASMCode(code);
+    }, 500);
+
+    return () => clearTimeout(lintTimerRef.current);
+  }, [code]);
+
   // Load from IndexedDB on mount
   useEffect(() => {
     loadFromIndexedDB('asmCode').then((saved) => {
       if (saved) setCode(saved);
     });
+    
+    // Check for updates
+    checkForUpdates();
   }, []);
+
+  // Real-time ASM code validation
+  const validateASMCode = (codeText) => {
+    const newErrors = [];
+    const lines = codeText.split('\n');
+    const validInstructions = [
+      'mov', 'add', 'sub', 'xor', 'and', 'or', 'shl', 'shr', 'rol', 'ror',
+      'jmp', 'jz', 'jnz', 'je', 'jne', 'cmp', 'test', 'int', 'call', 'ret',
+      'push', 'pop', 'inc', 'dec', 'neg', 'not', 'mul', 'div', 'nop', 'hlt'
+    ];
+
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith(';')) return;
+
+      const firstWord = trimmed.split(/\s+/)[0].toLowerCase();
+      
+      if (!validInstructions.includes(firstWord) && !trimmed.includes(':')) {
+        if (!firstWord.match(/^0x[0-9a-f]+$/i) && firstWord !== '') {
+          newErrors.push({
+            line: idx + 1,
+            message: `Unknown instruction: '${firstWord}'. Did you mean one of: mov, add, sub, jmp?`,
+            severity: 'error'
+          });
+        }
+      }
+
+      if (trimmed.includes('mov ') && !trimmed.includes(',')) {
+        newErrors.push({
+          line: idx + 1,
+          message: 'MOV instruction requires source and destination',
+          severity: 'error'
+        });
+      }
+    });
+
+    setErrors(newErrors);
+  };
+
+  // Check for app updates
+  const checkForUpdates = async () => {
+    try {
+      const response = await fetch('https://api.github.com/repos/Resolutefemi/asm-emulator/releases/latest', {
+        headers: { 'Accept': 'application/vnd.github.v3+json' }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const currentVersion = '0.1.0';
+        if (data.tag_name && data.tag_name.replace('v', '') !== currentVersion) {
+          setUpdateAvailable(true);
+        }
+      }
+    } catch (err) {
+      console.log('Update check failed:', err);
+    }
+  };
+
+  const handleUpgrade = () => {
+    window.open('https://github.com/Resolutefemi/asm-emulator/releases/latest', '_blank');
+  };
 
   const runCode = () => {
     try {
+      setTerminalOpen(true);
+      setIsRunning(true);
+      setActivePanel('output');
+      
+      const startTime = performance.now();
       emulatorRef.current.load(code);
       const output = emulatorRef.current.run();
+      const endTime = performance.now();
+      
+      setCpuStats({
+        cycles: emulatorRef.current.registers.ip || 0,
+        memory: '256 KB',
+        runtime: `${(endTime - startTime).toFixed(2)}ms`
+      });
+
       setEmulatorState({
-        ...emulatorState,
         registers: emulatorRef.current.registers,
         flags: emulatorRef.current.flags,
         ip: emulatorRef.current.ip,
+        memory: emulatorRef.current.memory || new Array(65536).fill(0),
         output: [...emulatorState.output, ...output],
       });
       setIsRunning(false);
     } catch (err) {
+      setTerminalOpen(true);
       setEmulatorState({
         ...emulatorState,
         output: [...emulatorState.output, `❌ Error: ${err.message}`],
       });
+      setIsRunning(false);
     }
   };
 
@@ -86,16 +181,57 @@ end:
     resetCode();
   };
 
+  const insertAtCursor = (text) => {
+    setCode(code + '\n' + text + ' ');
+  };
+
+  const clearTerminalOutput = () => {
+    setEmulatorState({ ...emulatorState, output: [] });
+  };
+
+  const toggleTerminal = () => {
+    setTerminalOpen(!terminalOpen);
+  };
+
+  const toggleMobileMenu = () => {
+    setMobileMenuOpen(!mobileMenuOpen);
+  };
+
   return (
     <div className="app-container">
       {/* Header */}
       <header className="app-header">
         <div className="header-left">
+          <button className="mobile-menu-btn" onClick={toggleMobileMenu}>
+            ☰
+          </button>
           <h1 className="app-title">⚙️ Renance Playground</h1>
           <span className="subtitle">8086 ASM Emulator</span>
         </div>
+        
+        {/* CPU Stats Bar - Hidden on mobile */}
+        <div className="cpu-stats-bar">
+          <div className="stat-item">
+            <span className="stat-label">Cycles:</span>
+            <span className="stat-value">{cpuStats.cycles}</span>
+          </div>
+          <div className="stat-item">
+            <span className="stat-label">Memory:</span>
+            <span className="stat-value">{cpuStats.memory}</span>
+          </div>
+          <div className="stat-item">
+            <span className="stat-label">Runtime:</span>
+            <span className="stat-value">{cpuStats.runtime}</span>
+          </div>
+        </div>
+
         <div className="header-controls">
-          <button className="btn btn-run" onClick={runCode}>
+          {updateAvailable && (
+            <button className="btn btn-upgrade" onClick={handleUpgrade} title="Update available">
+              ⬆ Upgrade
+            </button>
+          )}
+          <button className="btn btn-run" onClick={runCode} disabled={isRunning}>
             ▶ Run
           </button>
           <button className="btn btn-reset" onClick={resetCode}>
@@ -107,14 +243,73 @@ end:
         </div>
       </header>
 
+      {/* Mobile Menu Sidebar */}
+      {mobileMenuOpen && (
+        <div className="mobile-menu-overlay" onClick={() => setMobileMenuOpen(false)}>
+          <div className="mobile-menu-sidebar" onClick={(e) => e.stopPropagation()}>
+            <div className="sidebar-header">
+              <h3>Navigation</h3>
+              <button className="close-btn" onClick={() => setMobileMenuOpen(false)}>✕</button>
+            </div>
+            <div className="sidebar-content">
+              <div className="menu-section">
+                <h4>File Operations</h4>
+                <button className="menu-item" onClick={() => { setCode(''); setMobileMenuOpen(false); }}>
+                  📄 New File
+                </button>
+                <button className="menu-item" onClick={() => { clearCode(); setMobileMenuOpen(false); }}>
+                  🗑 Clear Code
+                </button>
+              </div>
+              <div className="menu-section">
+                <h4>View</h4>
+                <button className="menu-item" onClick={() => { setActivePanel('output'); setTerminalOpen(true); setMobileMenuOpen(false); }}>
+                  📡 Output Terminal
+                </button>
+                <button className="menu-item" onClick={() => { setActivePanel('cpu'); setMobileMenuOpen(false); }}>
+                  📊 CPU State
+                </button>
+                <button className="menu-item" onClick={() => { setActivePanel('memory'); setMobileMenuOpen(false); }}>
+                  💾 Memory View
+                </button>
+              </div>
+              <div className="menu-section">
+                <h4>Tools</h4>
+                <button className="menu-item" onClick={() => { checkForUpdates(); setMobileMenuOpen(false); }}>
+                  🔄 Check Updates
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="content-wrapper">
         {/* Editor Panel */}
         <div className="editor-panel">
           <div className="panel-header">
-            <span className="panel-title">📝 Code Editor</span>
-            <span className="auto-save">💾 Auto-saving...</span>
+            <div className="editor-title-section">
+              <span className="panel-title">📝 Code Editor</span>
+              <span className="auto-save">💾 Auto-saving...</span>
+            </div>
+            {errors.length > 0 && (
+              <div className="error-badge">{errors.length} error{errors.length !== 1 ? 's' : ''}</div>
+            )}
           </div>
+
+          {/* Real-time Error Display */}
+          {errors.length > 0 && (
+            <div className="error-panel">
+              {errors.map((err, idx) => (
+                <div key={idx} className="error-item">
+                  <span className="error-line">Line {err.line}:</span>
+                  <span className="error-message">{err.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <CodeMirror
             value={code}
             onChange={setCode}
@@ -134,15 +329,21 @@ end:
           />
         </div>
 
-        {/* Right Panel - CPU/Memory/Output */}
-        <div className="right-panel">
+        {/* Right Panel - CPU/Memory/Output (Hidden on mobile when terminal open) */}
+        <div className={`right-panel ${terminalOpen ? 'terminal-expanded' : ''}`}>
           {/* Panel Tabs */}
           <div className="panel-tabs">
+            <button
+              className={`tab ${activePanel === 'output' ? 'active' : ''}`}
+              onClick={() => setActivePanel('output')}
+            >
+              📡 Terminal
+            </button>
             <button
               className={`tab ${activePanel === 'cpu' ? 'active' : ''}`}
               onClick={() => setActivePanel('cpu')}
             >
-              📊 CPU State
+              📊 CPU
             </button>
             <button
               className={`tab ${activePanel === 'memory' ? 'active' : ''}`}
@@ -150,13 +351,34 @@ end:
             >
               💾 Memory
             </button>
-            <button
-              className={`tab ${activePanel === 'output' ? 'active' : ''}`}
-              onClick={() => setActivePanel('output')}
-            >
-              📡 Output
+            <button className="tab-close-btn" onClick={toggleTerminal} title="Close terminal">
+              ✕
             </button>
           </div>
+
+          {/* Terminal/Output Panel */}
+          {activePanel === 'output' && (
+            <div className="panel-content output-panel">
+              <div className="terminal-header">
+                <span className="terminal-title">$ Terminal</span>
+                <button className="terminal-clear-btn" onClick={clearTerminalOutput} title="Clear output">
+                  Clear
+                </button>
+              </div>
+              <div className="output-log">
+                <div className="terminal-prompt">How are you doing$</div>
+                {emulatorState.output.length === 0 ? (
+                  <p className="no-output">Run your code to see output...</p>
+                ) : (
+                  emulatorState.output.map((line, idx) => (
+                    <div key={idx} className="output-line">
+                      {line}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
 
           {/* CPU State Panel */}
           {activePanel === 'cpu' && (
@@ -179,6 +401,28 @@ end:
                   <div className="register">
                     <span className="reg-name">DX</span>
                     <span className="reg-value">0x{emulatorState.registers.dx.toString(16).toUpperCase().padStart(4, '0')}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="register-group">
+                <h3>Pointer & Index Registers</h3>
+                <div className="registers-grid">
+                  <div className="register">
+                    <span className="reg-name">SI</span>
+                    <span className="reg-value">0x{emulatorState.registers.si.toString(16).toUpperCase().padStart(4, '0')}</span>
+                  </div>
+                  <div className="register">
+                    <span className="reg-name">DI</span>
+                    <span className="reg-value">0x{emulatorState.registers.di.toString(16).toUpperCase().padStart(4, '0')}</span>
+                  </div>
+                  <div className="register">
+                    <span className="reg-name">BP</span>
+                    <span className="reg-value">0x{emulatorState.registers.bp.toString(16).toUpperCase().padStart(4, '0')}</span>
+                  </div>
+                  <div className="register">
+                    <span className="reg-name">SP</span>
+                    <span className="reg-value">0x{emulatorState.registers.sp.toString(16).toUpperCase().padStart(4, '0')}</span>
                   </div>
                 </div>
               </div>
@@ -247,24 +491,6 @@ end:
               </div>
             </div>
           )}
-
-          {/* Output Panel */}
-          {activePanel === 'output' && (
-            <div className="panel-content output-panel">
-              <h3>Execution Output</h3>
-              <div className="output-log">
-                {emulatorState.output.length === 0 ? (
-                  <p className="no-output">Run your code to see output...</p>
-                ) : (
-                  emulatorState.output.map((line, idx) => (
-                    <div key={idx} className="output-line">
-                      {line}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -311,11 +537,6 @@ end:
       </div>
     </div>
   );
-
-  function insertAtCursor(text) {
-    const lines = code.split('\n');
-    setCode(code + '\n' + text + ' ');
-  }
 }
 
 // IndexedDB helpers
