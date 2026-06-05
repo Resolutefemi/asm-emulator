@@ -110,6 +110,7 @@ const asmHighlightPlugin = ViewPlugin.fromClass(class {
 
 export default function AppFinal() {
   const [showSplash, setShowSplash] = useState(true);
+  const [workspacePath, setWorkspacePath] = useState(null);
   const [code, setCode] = useState(`; Renance Playground - Default Assembly Code\nmov ax, 0x1234\nadd ax, 0x5678\nhlt\n`);
 
   const [emulatorState, setEmulatorState] = useState({
@@ -133,6 +134,50 @@ export default function AppFinal() {
   const autoSaveTimerRef = useRef(null);
   const terminalRef = useRef(null);
   const dragStartY = useRef(0);
+
+  // Workspace logic
+  const openWorkspace = async () => {
+    if (window.__TAURI__) {
+      try {
+        const selected = await window.__TAURI__.dialog.open({
+          directory: true,
+          multiple: false,
+          title: 'Select Workspace Folder'
+        });
+        if (selected) {
+          setWorkspacePath(selected);
+          // Initial read of workspace files
+          const entries = await window.__TAURI__.fs.readDir(selected, { recursive: true });
+          const newFiles = {};
+          const processEntries = (items, parent = '') => {
+            items.forEach(item => {
+              const relPath = parent ? `${parent}/${item.name}` : item.name;
+              if (item.children) {
+                processEntries(item.children, relPath);
+              } else {
+                newFiles[relPath] = ''; // Content will be loaded on demand
+              }
+            });
+          };
+          processEntries(entries);
+          setVirtualFiles(newFiles);
+          
+          // Set first .asm file as active if exists
+          const firstAsm = Object.keys(newFiles).find(f => f.endsWith('.asm'));
+          if (firstAsm) {
+            setActiveFile(firstAsm);
+            const content = await window.__TAURI__.fs.readTextFile(`${selected}/${firstAsm}`);
+            setCode(content);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to open workspace:', err);
+      }
+    } else {
+      // Fallback for web demo
+      setWorkspacePath('/virtual/workspace');
+    }
+  };
 
   // Git Bash style terminal states
   const [terminalHistory, setTerminalHistory] = useState([
