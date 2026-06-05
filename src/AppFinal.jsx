@@ -526,7 +526,7 @@ export default function AppFinal() {
     setNewItemName('');
   };
 
-  const handleNewFileSubmit = (val) => {
+  const handleNewFileSubmit = async (val) => {
     const filename = (val !== undefined ? val : newItemName).trim();
     if (!filename) {
       setIsCreatingFile(false);
@@ -537,6 +537,18 @@ export default function AppFinal() {
       setIsCreatingFile(false);
       return;
     }
+
+    const defaultContent = "; New assembly file\n";
+    
+    // Save to disk if workspace is open
+    if (workspacePath && window.__TAURI__) {
+      try {
+        await window.__TAURI__.fs.writeTextFile(`${workspacePath}/${filename}`, defaultContent);
+      } catch (err) {
+        console.error('Failed to create file on disk:', err);
+      }
+    }
+
     const parts = filename.split('/');
     if (parts.length > 1) {
       const folder = parts[0];
@@ -546,10 +558,10 @@ export default function AppFinal() {
     }
     setVirtualFiles(prev => ({
       ...prev,
-      [filename]: "; New assembly file\n"
+      [filename]: defaultContent
     }));
     setActiveFile(filename);
-    setCode("; New assembly file\n");
+    setCode(defaultContent);
     setIsCreatingFile(false);
     setNewItemName('');
   };
@@ -585,8 +597,17 @@ export default function AppFinal() {
     }
   };
 
-  const deleteFile = (filepath) => {
+  const deleteFile = async (filepath) => {
     if (!window.confirm(`Are you sure you want to delete '${filepath}'?`)) return;
+    
+    if (workspacePath && window.__TAURI__) {
+      try {
+        await window.__TAURI__.fs.removeFile(`${workspacePath}/${filepath}`);
+      } catch (err) {
+        console.error('Failed to delete file from disk:', err);
+      }
+    }
+
     setVirtualFiles(prev => {
       const copy = { ...prev };
       delete copy[filepath];
@@ -605,8 +626,17 @@ export default function AppFinal() {
     }
   };
 
-  const deleteFolder = (folderName) => {
+  const deleteFolder = async (folderName) => {
     if (!window.confirm(`Are you sure you want to delete folder '${folderName}' and all its contents?`)) return;
+    
+    if (workspacePath && window.__TAURI__) {
+      try {
+        await window.__TAURI__.fs.removeDir(`${workspacePath}/${folderName}`, { recursive: true });
+      } catch (err) {
+        console.error('Failed to delete folder from disk:', err);
+      }
+    }
+
     setVirtualDirs(prev => prev.filter(d => d !== folderName));
     setVirtualFiles(prev => {
       const copy = { ...prev };
