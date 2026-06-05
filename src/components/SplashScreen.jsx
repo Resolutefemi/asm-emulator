@@ -22,7 +22,7 @@ export const SplashScreen = ({ onComplete }) => {
       <div className="splash-content">
         <div className="splash-icon-container">
           <img 
-            src="/ice.jpg"
+            src="/icon.png"
             alt="Renance"
             className="splash-icon"
           />
@@ -32,6 +32,7 @@ export const SplashScreen = ({ onComplete }) => {
         <div className="splash-text">
           <h1 className="splash-title">Renance</h1>
           <p className="splash-subtitle">Professional 8086 Assembly IDE</p>
+          <p className="splash-subtitle splash-author">by Resolute Femi</p>
         </div>
       </div>
     </div>

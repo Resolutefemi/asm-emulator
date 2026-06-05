@@ -115,18 +115,24 @@
 .splash-title {
   font-size: 48px;
   font-weight: 700;
-  color: #c9d1d9;
+  color: #ffffff;
   margin: 0;
   letter-spacing: -1px;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  text-shadow: 0 0 30px rgba(255, 255, 255, 0.1);
 }
 
 .splash-subtitle {
   font-size: 14px;
   color: #8b949e;
-  margin: 8px 0 0;
+  margin: 12px 0 0;
   font-weight: 400;
   letter-spacing: 0.5px;
+}
+
+.splash-author {
+  margin-top: 4px;
+  color: #58a6ff;
+  font-weight: 500;
 }
 
 /* Mobile */
