@@ -508,40 +508,125 @@ export default function AppFinal() {
     document.body.removeChild(element);
   };
 
-  // File Explorer VFS Helper
+  // Recursive File Explorer VFS Helper
   const getFileTree = () => {
-    const tree = { folders: {}, rootFiles: [] };
+    const root = { name: 'root', type: 'folder', children: {} };
     const allowedExtensions = ['.asm', '.md', '.txt'];
     
-    // Initialize folders
-    virtualDirs.forEach(dir => {
-      tree.folders[dir] = [];
-    });
-    
-    // Distribute files with filtering
     Object.keys(virtualFiles).forEach(filepath => {
       // Strict Extension Filtering
       const hasAllowedExtension = allowedExtensions.some(ext => filepath.toLowerCase().endsWith(ext));
       if (!hasAllowedExtension) return;
 
       const parts = filepath.split('/');
-      if (parts.length > 1) {
-        const folder = parts[0];
-        if (!tree.folders[folder]) {
-          tree.folders[folder] = [];
+      let current = root;
+      
+      parts.forEach((part, index) => {
+        if (index === parts.length - 1) {
+          // It's a file
+          current.children[part] = { name: part, type: 'file', path: filepath };
+        } else {
+          // It's a folder
+          if (!current.children[part]) {
+            current.children[part] = { name: part, type: 'folder', children: {} };
+          }
+          current = current.children[part];
         }
-        tree.folders[folder].push({
-          name: parts.slice(1).join('/'),
-          path: filepath
-        });
+      });
+    });
+    return root;
+  };
+
+  const renderTree = (node, depth = 0) => {
+    const items = Object.values(node.children).sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    if (items.length === 0 && depth === 0 && workspacePath) {
+      return (
+        <div className="empty-tree-message">
+          <p>Your workspace is empty.</p>
+          <button className="btn btn-outline btn-small" onClick={triggerCreateFile}>
+            📄 Create your first file
+          </button>
+        </div>
+      );
+    }
+
+    return items.map(item => {
+      if (item.type === 'folder') {
+        return (
+          <div key={item.name} className="tree-folder-group">
+            <div className="tree-folder-header" style={{ paddingLeft: `${depth * 12 + 14}px` }}>
+              <span className="tree-icon">📁</span>
+              <span className="tree-name">{item.name}</span>
+              <div className="tree-item-actions">
+                <button 
+                  className="tree-item-action-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const newName = prompt('Enter new folder name:', item.name);
+                    if (newName) handleRename(item.name, newName);
+                  }}
+                  title="Rename Folder"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                </button>
+                <button 
+                  className="tree-item-action-btn delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteFolder(item.name);
+                  }}
+                  title="Delete Folder"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
+              </div>
+            </div>
+            <div className="tree-folder-children">
+              {renderTree(item, depth + 1)}
+            </div>
+          </div>
+        );
       } else {
-        tree.rootFiles.push({
-          name: filepath,
-          path: filepath
-        });
+        return (
+          <div
+            key={item.path}
+            className={`tree-file-item ${activeFile === item.path ? 'active' : ''}`}
+            onClick={() => selectActiveFile(item.path)}
+            style={{ paddingLeft: `${depth * 12 + 14}px` }}
+          >
+            <span className="tree-icon">📄</span>
+            <span className="tree-name">{item.name}</span>
+            <div className="tree-item-actions">
+              <button 
+                className="tree-item-action-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const newName = prompt('Enter new file name:', item.name);
+                  if (newName) handleRename(item.path, newName);
+                }}
+                title="Rename File"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+              </button>
+              <button 
+                className="tree-item-action-btn delete"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteFile(item.path);
+                }}
+                title="Delete File"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              </button>
+            </div>
+          </div>
+        );
       }
     });
-    return tree;
   };
 
   const selectActiveFile = async (filepath) => {
@@ -981,6 +1066,7 @@ export default function AppFinal() {
     setShowSplash(false);
   };
 
+  // FORCE INITIALIZER STATE
   if (!showSplash && !workspacePath) {
     return (
       <div className="workspace-initializer">
@@ -988,9 +1074,11 @@ export default function AppFinal() {
           <div className="init-logo">⚙️</div>
           <h1 className="init-title">Renance Playground</h1>
           <p className="init-subtitle">No workspace open. Select a local folder to begin your 8086 Assembly journey.</p>
-          <button className="btn btn-primary btn-large" onClick={openWorkspace}>
-            📁 Open Folder
-          </button>
+          <div className="init-actions">
+            <button className="btn btn-primary btn-large" onClick={openWorkspace}>
+              📁 Open Workspace Folder
+            </button>
+          </div>
           <div className="init-footer">
             <span>Powered by Resolute Femi</span>
           </div>
@@ -1134,71 +1222,8 @@ export default function AppFinal() {
                 </div>
               )}
 
-              {/* Folders & Files tree */}
-              {Object.entries(getFileTree().folders).map(([folderName, files]) => (
-                <div key={folderName} className="tree-folder-group">
-                  <div className="tree-folder-header">
-                    <span className="tree-icon">📁</span>
-                    <span className="tree-name">{folderName}</span>
-                    <button 
-                      className="tree-item-action-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const newName = prompt('Enter new folder name:', folderName);
-                        if (newName) handleRename(folderName, newName);
-                      }}
-                      title="Rename Folder"
-                    >
-                      ✏️
-                    </button>
-                    <button 
-                      className="tree-item-action-btn delete"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteFolder(folderName);
-                      }}
-                      title="Delete Folder"
-                    >
-                      🗑
-                    </button>
-                  </div>
-                  <div className="tree-folder-children">
-                    {files.map(file => (
-                      <div
-                        key={file.path}
-                        className={`tree-file-item ${activeFile === file.path ? 'active' : ''}`}
-                        onClick={() => selectActiveFile(file.path)}
-                      >
-                        <span className="tree-icon">📄</span>
-                        <span className="tree-name">{file.name}</span>
-                        <div className="tree-item-actions">
-                          <button 
-                            className="tree-item-action-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const newName = prompt('Enter new file name:', file.name);
-                              if (newName) handleRename(file.path, newName);
-                            }}
-                            title="Rename File"
-                          >
-                            ✏️
-                          </button>
-                          <button 
-                            className="tree-item-action-btn delete"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteFile(file.path);
-                            }}
-                            title="Delete File"
-                          >
-                            🗑
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+              {/* Recursive Tree rendering */}
+              {renderTree(getFileTree())}
               
               {/* Inline File Creation Input */}
               {isCreatingFile && (
@@ -1219,28 +1244,6 @@ export default function AppFinal() {
                   />
                 </div>
               )}
-
-              {/* Root Files */}
-              {getFileTree().rootFiles.map(file => (
-                <div
-                  key={file.path}
-                  className={`tree-file-item root-file ${activeFile === file.path ? 'active' : ''}`}
-                  onClick={() => selectActiveFile(file.path)}
-                >
-                  <span className="tree-icon">📄</span>
-                  <span className="tree-name">{file.name}</span>
-                  <button 
-                    className="tree-item-delete-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteFile(file.path);
-                    }}
-                    title="Delete File"
-                  >
-                    🗑
-                  </button>
-                </div>
-              ))}
             </div>
           </div>
         )}
