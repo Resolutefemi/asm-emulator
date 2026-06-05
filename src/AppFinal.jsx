@@ -510,6 +510,12 @@ export default function AppFinal() {
       const isInput = ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) ||
                       document.activeElement.classList.contains('cm-content');
       
+      // Control + S to Save
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+      
       // Override F5 and F10 globally for IDE execution convenience
       if (e.key === 'F5') {
         e.preventDefault();
@@ -524,7 +530,19 @@ export default function AppFinal() {
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [code, isCompiled, isLinked]);
+  }, [code, isCompiled, isLinked, activeFile, workspacePath]);
+
+  // Unsaved changes guard
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = ''; // Standard browser requirement for confirmation modal
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
 
   const downloadAsmFile = () => {
     const element = document.createElement("a");
@@ -1137,6 +1155,7 @@ export default function AppFinal() {
           >
             {mobileView ? '📁' : '📁 Files'}
           </button>
+          
           <select 
             className="select-template-final" 
             onChange={(e) => {
@@ -1161,6 +1180,7 @@ export default function AppFinal() {
                   ...prev,
                   [activeFile]: targetCode
                 }));
+                setIsDirty(true);
               }
               resetCode();
             }}
@@ -1174,21 +1194,38 @@ export default function AppFinal() {
             <option value="calc">Simple Calculator</option>
             <option value="sort">Bubble Sort Array (0x200)</option>
           </select>
-          <button className="btn btn-primary btn-run" onClick={runCode} title="Run Code (F5)">
-            {mobileView ? '▶' : '▶ Run'}
-          </button>
-          <button className="btn btn-warning btn-step" onClick={stepCode} title="Step Debug (F10)">
-            {mobileView ? '🐾' : '🐾 Step'}
-          </button>
-          <button className="btn btn-secondary btn-reset" onClick={resetCode} title="Reset CPU">
-            {mobileView ? '🔄' : '🔄 Reset'}
-          </button>
-          <button className="btn btn-info btn-export" onClick={downloadAsmFile} title="Export Code as .ASM">
-            {mobileView ? '📥' : '📥 Export'}
-          </button>
-          <button className="btn btn-danger btn-clear" onClick={clearCode} title="Clear All">
-            {mobileView ? '🗑' : '🗑 Clear'}
-          </button>
+
+          {/* Unified Run Dropdown */}
+          <div className="run-split-button-container">
+            <button className="btn btn-primary btn-run-main" onClick={runCode} title="Run Code (F5)">
+              {mobileView ? '▶' : '▶ Run'}
+            </button>
+            <button 
+              className={`btn btn-primary btn-run-toggle ${showRunDropdown ? 'active' : ''}`}
+              onClick={() => setShowRunDropdown(!showRunDropdown)}
+            >
+              ▾
+            </button>
+            
+            {showRunDropdown && (
+              <div className="run-dropdown-menu">
+                <button className="dropdown-item" onClick={() => { stepCode(); setShowRunDropdown(false); }}>
+                  <span className="item-icon">🐾</span>
+                  <span className="item-text">Step Debug (F10)</span>
+                </button>
+                <button className="dropdown-item" onClick={() => { resetCode(); setShowRunDropdown(false); }}>
+                  <span className="item-icon">🔄</span>
+                  <span className="item-text">Reset CPU</span>
+                </button>
+                <div className="dropdown-divider"></div>
+                <button className="dropdown-item danger" onClick={() => { clearCode(); setShowRunDropdown(false); }}>
+                  <span className="item-icon">🗑</span>
+                  <span className="item-text">Clear All</span>
+                </button>
+              </div>
+            )}
+          </div>
+
           {!mobileView && (
             <>
               <button
@@ -1279,8 +1316,18 @@ export default function AppFinal() {
         {/* Editor Panel */}
         <div className="editor-panel">
           <div className="panel-header">
-            <span className="panel-title">📝 Code Editor {activeFile ? `(${activeFile})` : ''}</span>
-            <span className="auto-save-indicator">💾 Auto-saving...</span>
+            <div className="panel-header-left">
+              <span className="panel-title">📝 Code Editor {activeFile ? `(${activeFile})` : ''}</span>
+              {isDirty && <span className="dirty-indicator">●</span>}
+            </div>
+            <div className="panel-header-actions">
+              {mobileView && (
+                <button className={`btn btn-primary btn-save-mobile ${isDirty ? 'pulse' : ''}`} onClick={handleSave} title="Save File">
+                  💾 Save
+                </button>
+              )}
+              <span className="auto-save-indicator">💾 Auto-saving...</span>
+            </div>
           </div>
 
           <CodeMirror
@@ -1291,6 +1338,7 @@ export default function AppFinal() {
                 ...prev,
                 [activeFile]: val
               }));
+              if (!isDirty) setIsDirty(true);
             }}
             theme={darcula}
             extensions={[asmHighlightPlugin]}
