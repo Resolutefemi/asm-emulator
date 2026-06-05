@@ -1362,11 +1362,15 @@ html, body, #root {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
 }
 
 .explorer-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .explorer-action-btn {
@@ -1374,10 +1378,13 @@ html, body, #root {
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   padding: 2px 4px;
   border-radius: 4px;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .explorer-action-btn:hover {

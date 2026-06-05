@@ -136,6 +136,29 @@ export default function AppFinal() {
   const dragStartY = useRef(0);
 
   // Workspace logic
+  const refreshWorkspace = async () => {
+    if (workspacePath && window.__TAURI__) {
+      try {
+        const entries = await window.__TAURI__.fs.readDir(workspacePath, { recursive: true });
+        const newFiles = {};
+        const processEntries = (items, parent = '') => {
+          items.forEach(item => {
+            const relPath = parent ? `${parent}/${item.name}` : item.name;
+            if (item.children) {
+              processEntries(item.children, relPath);
+            } else {
+              newFiles[relPath] = virtualFiles[relPath] || '';
+            }
+          });
+        };
+        processEntries(entries);
+        setVirtualFiles(newFiles);
+      } catch (err) {
+        console.error('Failed to refresh workspace:', err);
+      }
+    }
+  };
+
   const openWorkspace = async () => {
     if (window.__TAURI__) {
       try {
@@ -176,6 +199,34 @@ export default function AppFinal() {
     } else {
       // Fallback for web demo
       setWorkspacePath('/virtual/workspace');
+    }
+  };
+
+  const handleRename = async (oldPath, newName) => {
+    if (!newName || oldPath.endsWith(newName)) return;
+    
+    const parts = oldPath.split('/');
+    parts[parts.length - 1] = newName;
+    const newPath = parts.join('/');
+
+    if (workspacePath && window.__TAURI__) {
+      try {
+        await window.__TAURI__.fs.renameFile(`${workspacePath}/${oldPath}`, `${workspacePath}/${newPath}`);
+      } catch (err) {
+        alert(`Failed to rename: ${err.message}`);
+        return;
+      }
+    }
+
+    setVirtualFiles(prev => {
+      const copy = { ...prev };
+      copy[newPath] = copy[oldPath];
+      delete copy[oldPath];
+      return copy;
+    });
+
+    if (activeFile === oldPath) {
+      setActiveFile(newPath);
     }
   };
 
@@ -493,7 +544,7 @@ export default function AppFinal() {
     return tree;
   };
 
-  const selectActiveFile = (filepath) => {
+  const selectActiveFile = async (filepath) => {
     const allowedExtensions = ['.asm', '.md', '.txt'];
     const hasAllowedExtension = allowedExtensions.some(ext => filepath.toLowerCase().endsWith(ext));
     if (!hasAllowedExtension) {
@@ -507,11 +558,34 @@ export default function AppFinal() {
         ...prev,
         [activeFile]: code
       }));
+      
+      // Also save to disk if workspace is open
+      if (workspacePath && window.__TAURI__) {
+        try {
+          await window.__TAURI__.fs.writeTextFile(`${workspacePath}/${activeFile}`, code);
+        } catch (err) {
+          console.error('Failed to save file to disk:', err);
+        }
+      }
     }
-    // 2. Set new active file
+
+    // 2. Load code from disk if in workspace
+    let fileContent = virtualFiles[filepath] || '';
+    if (workspacePath && window.__TAURI__) {
+      try {
+        fileContent = await window.__TAURI__.fs.readTextFile(`${workspacePath}/${filepath}`);
+      } catch (err) {
+        console.error('Failed to read file from disk:', err);
+      }
+    }
+
+    // 3. Set new active file and load code
     setActiveFile(filepath);
-    // 3. Load code into editor
-    setCode(virtualFiles[filepath] || '');
+    setCode(fileContent);
+    setVirtualFiles(prev => ({
+      ...prev,
+      [filepath]: fileContent
+    }));
   };
 
   const triggerCreateFile = () => {
@@ -907,10 +981,28 @@ export default function AppFinal() {
     setShowSplash(false);
   };
 
+  if (!showSplash && !workspacePath) {
+    return (
+      <div className="workspace-initializer">
+        <div className="init-content">
+          <div className="init-logo">⚙️</div>
+          <h1 className="init-title">Renance Playground</h1>
+          <p className="init-subtitle">No workspace open. Select a local folder to begin your 8086 Assembly journey.</p>
+          <button className="btn btn-primary btn-large" onClick={openWorkspace}>
+            📁 Open Folder
+          </button>
+          <div className="init-footer">
+            <span>Powered by Resolute Femi</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
-      <div className={`app-final ${!showSplash ? 'revealed' : ''} ${mobileView ? 'mobile' : 'desktop'} ${isDragging ? 'dragging' : ''}`}>
+      <div className={`app-final ${(!showSplash && workspacePath) ? 'revealed' : ''} ${mobileView ? 'mobile' : 'desktop'} ${isDragging ? 'dragging' : ''}`}>
       {/* Header */}
       <header className="header-final">
         <div className="header-brand">
@@ -1008,10 +1100,14 @@ export default function AppFinal() {
         {fileExplorerOpen && (
           <div className="sidebar-explorer">
             <div className="explorer-header">
-              <span className="explorer-title">📁 Workspace</span>
+              <span className="explorer-title" title={workspacePath}>
+                📁 {workspacePath ? workspacePath.split(/[\\/]/).pop() : 'Workspace'}
+              </span>
               <div className="explorer-actions">
+                <button className="explorer-action-btn" onClick={refreshWorkspace} title="Refresh Workspace">🔄</button>
                 <button className="explorer-action-btn" onClick={triggerCreateFile} title="New File">📄+</button>
                 <button className="explorer-action-btn" onClick={triggerCreateFolder} title="New Folder">📁+</button>
+                <button className="explorer-action-btn" onClick={() => setWorkspacePath(null)} title="Close Workspace">✕</button>
               </div>
             </div>
             
@@ -1045,7 +1141,18 @@ export default function AppFinal() {
                     <span className="tree-icon">📁</span>
                     <span className="tree-name">{folderName}</span>
                     <button 
-                      className="tree-item-delete-btn"
+                      className="tree-item-action-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const newName = prompt('Enter new folder name:', folderName);
+                        if (newName) handleRename(folderName, newName);
+                      }}
+                      title="Rename Folder"
+                    >
+                      ✏️
+                    </button>
+                    <button 
+                      className="tree-item-action-btn delete"
                       onClick={(e) => {
                         e.stopPropagation();
                         deleteFolder(folderName);
@@ -1064,16 +1171,29 @@ export default function AppFinal() {
                       >
                         <span className="tree-icon">📄</span>
                         <span className="tree-name">{file.name}</span>
-                        <button 
-                          className="tree-item-delete-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteFile(file.path);
-                          }}
-                          title="Delete File"
-                        >
-                          🗑
-                        </button>
+                        <div className="tree-item-actions">
+                          <button 
+                            className="tree-item-action-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const newName = prompt('Enter new file name:', file.name);
+                              if (newName) handleRename(file.path, newName);
+                            }}
+                            title="Rename File"
+                          >
+                            ✏️
+                          </button>
+                          <button 
+                            className="tree-item-action-btn delete"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteFile(file.path);
+                            }}
+                            title="Delete File"
+                          >
+                            🗑
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
