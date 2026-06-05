@@ -190,8 +190,8 @@ body {
   display: flex;
   flex: 1;
   overflow: hidden;
-  gap: 1px;
-  background: var(--border-color);
+  gap: 0;
+  background: var(--bg-dark);
 }
 
 /* ============ EDITOR PANEL ============ */
@@ -201,6 +201,7 @@ body {
   flex-direction: column;
   background: var(--bg-dark);
   min-width: 300px;
+  border-left: 1px solid var(--border-color);
 }
 
 .panel-header {

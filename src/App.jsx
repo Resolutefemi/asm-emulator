@@ -1,5 +1,5 @@
 // src/App.jsx
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { EditorView } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { javascript } from '@codemirror/lang-javascript';
@@ -7,7 +7,11 @@ import CodeMirror from '@uiw/react-codemirror';
 import { darcula } from '@uiw/codemirror-theme-darcula';
 import { Emulator8086 } from './emulator/Emulator8086';
 import SplashScreen from './components/SplashScreen';
+import ActivityBar from './components/ActivityBar';
+import WorkspaceExplorer from './components/WorkspaceExplorer';
+import TemplateBrowser from './components/TemplateBrowser';
 import './styles/App.css';
+import './styles/ActivityBar.css';
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -37,7 +41,13 @@ end:
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [errors, setErrors] = useState([]);
   const [cpuStats, setCpuStats] = useState({ cycles: 0, memory: '0 KB', runtime: '0ms' });
-  
+
+  // ── Activity Bar & Sidebar state ──
+  const [activityTab, setActivityTab] = useState(null); // null | 'explorer' | 'templates'
+  const [workspaceDir, setWorkspaceDir] = useState(null);       // directory name string
+  const [workspaceFiles, setWorkspaceFiles] = useState([]);     // array of { name, handle }
+  const [activeWorkspaceFile, setActiveWorkspaceFile] = useState(null);
+
   const emulatorRef = useRef(new Emulator8086());
   const autoSaveTimerRef = useRef(null);
   const lintTimerRef = useRef(null);
@@ -203,6 +213,44 @@ end:
     setShowSplash(false);
   };
 
+  // ── Workspace folder picker ──
+  const handleOpenFolder = useCallback(async () => {
+    try {
+      const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+      const files = [];
+      for await (const [name, handle] of dirHandle.entries()) {
+        if (handle.kind === 'file' && name.toLowerCase().endsWith('.asm')) {
+          files.push({ name, handle });
+        }
+      }
+      files.sort((a, b) => a.name.localeCompare(b.name));
+      setWorkspaceDir(dirHandle.name);
+      setWorkspaceFiles(files);
+      setActiveWorkspaceFile(null);
+    } catch (err) {
+      if (err.name !== 'AbortError') console.error('Folder open error:', err);
+    }
+  }, []);
+
+  // ── Load file from workspace into editor ──
+  const handleSelectWorkspaceFile = useCallback(async (fileEntry) => {
+    try {
+      const file = await fileEntry.handle.getFile();
+      const text = await file.text();
+      setCode(text);
+      setActiveWorkspaceFile(fileEntry.name);
+    } catch (err) {
+      console.error('Failed to read file:', err);
+    }
+  }, []);
+
+  // ── Insert template into editor ──
+  const handleInsertTemplate = useCallback((templateCode) => {
+    setCode(templateCode);
+  }, []);
+
+  const sidebarVisible = activityTab !== null;
+
   return (
     <>
       {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
@@ -294,6 +342,28 @@ end:
 
       {/* Main Content */}
       <div className="content-wrapper">
+        {/* ── Activity Bar (desktop only, far-left 48px strip) ── */}
+        <ActivityBar
+          activeTab={activityTab}
+          onTabChange={setActivityTab}
+        />
+
+        {/* ── Primary Sidebar (250px, swaps between explorer / templates) ── */}
+        <div className={`primary-sidebar${sidebarVisible ? '' : ' sidebar-hidden'}`}>
+          {activityTab === 'explorer' && (
+            <WorkspaceExplorer
+              workspaceDir={workspaceDir}
+              workspaceFiles={workspaceFiles}
+              activeFile={activeWorkspaceFile}
+              onSelectFile={handleSelectWorkspaceFile}
+              onOpenFolder={handleOpenFolder}
+            />
+          )}
+          {activityTab === 'templates' && (
+            <TemplateBrowser onInsertTemplate={handleInsertTemplate} />
+          )}
+        </div>
+
         {/* Editor Panel */}
         <div className="editor-panel">
           <div className="panel-header">

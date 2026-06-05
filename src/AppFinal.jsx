@@ -1,5 +1,5 @@
 // src/AppFinal.jsx
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { darcula } from '@uiw/codemirror-theme-darcula';
 import { Decoration, ViewPlugin } from '@codemirror/view';
@@ -7,7 +7,11 @@ import { RangeSetBuilder } from '@codemirror/state';
 import { Emulator8086 } from './emulator/Emulator8086';
 import { INSTRUCTION_SET, FLAG_BITS, searchInstructions } from './data/InstructionSet8086';
 import SplashScreen from './components/SplashScreen';
+import ActivityBar from './components/ActivityBar';
+import WorkspaceExplorer from './components/WorkspaceExplorer';
+import TemplateBrowser from './components/TemplateBrowser';
 import './styles/AppFinal.css';
+import './styles/ActivityBar.css';
 
 // Custom CodeMirror 6 Syntax Highlighter plugin for 8086 Assembly
 const asmHighlightPlugin = ViewPlugin.fromClass(class {
@@ -129,6 +133,12 @@ export default function AppFinal() {
   const [terminalOpen, setTerminalOpen] = useState(true); // Open terminal by default
   const [terminalHeight, setTerminalHeight] = useState(250);
   const [isDragging, setIsDragging] = useState(false);
+
+  // ── Activity Bar state ──
+  const [activityTab, setActivityTab] = useState(null); // null | 'explorer' | 'templates'
+  const [wsDir, setWsDir] = useState(null);             // opened folder name
+  const [wsFiles, setWsFiles] = useState([]);            // { name, handle }[]
+  const [wsActiveFile, setWsActiveFile] = useState(null);
 
   const emulatorRef = useRef(new Emulator8086());
   const autoSaveTimerRef = useRef(null);
@@ -1249,6 +1259,48 @@ export default function AppFinal() {
 
       {/* Main Content */}
       <div className="main-content">
+        {/* ── Activity Bar: 48px, desktop only ── */}
+        <ActivityBar activeTab={activityTab} onTabChange={setActivityTab} />
+
+        {/* ── Primary Sidebar: swaps content on tab change ── */}
+        <div className={`primary-sidebar${activityTab ? '' : ' sidebar-hidden'}`}>
+          {activityTab === 'explorer' && (
+            <WorkspaceExplorer
+              workspaceDir={wsDir}
+              workspaceFiles={wsFiles}
+              activeFile={wsActiveFile}
+              onSelectFile={async (fileEntry) => {
+                try {
+                  const file = await fileEntry.handle.getFile();
+                  const text = await file.text();
+                  setCode(text);
+                  setWsActiveFile(fileEntry.name);
+                } catch (err) { console.error(err); }
+              }}
+              onOpenFolder={async () => {
+                try {
+                  const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+                  const files = [];
+                  for await (const [name, handle] of dirHandle.entries()) {
+                    if (handle.kind === 'file' && name.toLowerCase().endsWith('.asm')) {
+                      files.push({ name, handle });
+                    }
+                  }
+                  files.sort((a, b) => a.name.localeCompare(b.name));
+                  setWsDir(dirHandle.name);
+                  setWsFiles(files);
+                  setWsActiveFile(null);
+                } catch (err) {
+                  if (err.name !== 'AbortError') console.error(err);
+                }
+              }}
+            />
+          )}
+          {activityTab === 'templates' && (
+            <TemplateBrowser onInsertTemplate={(tmplCode) => setCode(tmplCode)} />
+          )}
+        </div>
+
         {/* Sidebar File Explorer */}
         {fileExplorerOpen && (
           <div className="sidebar-explorer">
