@@ -255,6 +255,34 @@ export default function AppFinal() {
   const [isCreatingFile, setIsCreatingFile] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newItemName, setNewItemName] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
+  const [showRunDropdown, setShowRunDropdown] = useState(false);
+
+  // Handle manual file save
+  const handleSave = async () => {
+    if (!activeFile) return;
+    
+    if (workspacePath && window.__TAURI__) {
+      try {
+        await window.__TAURI__.fs.writeTextFile(`${workspacePath}/${activeFile}`, code);
+        setIsDirty(false);
+        setTerminalHistory(prev => [
+          ...prev,
+          { type: 'info', text: `✔ Saved: ${activeFile}` }
+        ]);
+      } catch (err) {
+        console.error('Failed to save to disk:', err);
+        alert(`Save failed: ${err.message}`);
+      }
+    } else {
+      // Fallback/Web VFS save
+      setVirtualFiles(prev => ({
+        ...prev,
+        [activeFile]: code
+      }));
+      setIsDirty(false);
+    }
+  };
 
   // Handle window resize
   useEffect(() => {
