@@ -1539,13 +1539,42 @@ html, body, #root {
   border-radius: 4px;
 }
 
-.tree-file-item:hover .tree-item-delete-btn,
-.tree-folder-header:hover .tree-item-delete-btn {
+.tree-file-item, .tree-folder-header {
+  position: relative;
+}
+
+.tree-item-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.tree-file-item:hover .tree-item-actions,
+.tree-folder-header:hover .tree-item-action-btn {
   opacity: 1;
 }
 
-.tree-item-delete-btn:hover {
-  color: #ff7b72 !important; /* Red color on hover */
+.tree-item-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.tree-item-action-btn:hover {
   background: var(--bg-hover);
+  color: var(--success);
+}
+
+.tree-item-action-btn.delete:hover {
+  color: var(--error);
 }
 
