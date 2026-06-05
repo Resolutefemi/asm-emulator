@@ -6,6 +6,7 @@ import { Decoration, ViewPlugin } from '@codemirror/view';
 import { RangeSetBuilder } from '@codemirror/state';
 import { Emulator8086 } from './emulator/Emulator8086';
 import { INSTRUCTION_SET, FLAG_BITS, searchInstructions } from './data/InstructionSet8086';
+import SplashScreen from './components/SplashScreen';
 import './styles/AppFinal.css';
 
 // Custom CodeMirror 6 Syntax Highlighter plugin for 8086 Assembly
@@ -108,6 +109,7 @@ const asmHighlightPlugin = ViewPlugin.fromClass(class {
 });
 
 export default function AppFinal() {
+  const [showSplash, setShowSplash] = useState(true);
   const [code, setCode] = useState(`; Renance Playground - Default Assembly Code\nmov ax, 0x1234\nadd ax, 0x5678\nhlt\n`);
 
   const [emulatorState, setEmulatorState] = useState({
@@ -413,14 +415,19 @@ export default function AppFinal() {
   // File Explorer VFS Helper
   const getFileTree = () => {
     const tree = { folders: {}, rootFiles: [] };
+    const allowedExtensions = ['.asm', '.md', '.txt'];
     
     // Initialize folders
     virtualDirs.forEach(dir => {
       tree.folders[dir] = [];
     });
     
-    // Distribute files
+    // Distribute files with filtering
     Object.keys(virtualFiles).forEach(filepath => {
+      // Strict Extension Filtering
+      const hasAllowedExtension = allowedExtensions.some(ext => filepath.toLowerCase().endsWith(ext));
+      if (!hasAllowedExtension) return;
+
       const parts = filepath.split('/');
       if (parts.length > 1) {
         const folder = parts[0];
@@ -442,6 +449,13 @@ export default function AppFinal() {
   };
 
   const selectActiveFile = (filepath) => {
+    const allowedExtensions = ['.asm', '.md', '.txt'];
+    const hasAllowedExtension = allowedExtensions.some(ext => filepath.toLowerCase().endsWith(ext));
+    if (!hasAllowedExtension) {
+      console.warn(`File extension not allowed: ${filepath}`);
+      return;
+    }
+
     // 1. Save current editor code to the old active file
     if (activeFile) {
       setVirtualFiles(prev => ({
@@ -637,42 +651,55 @@ export default function AppFinal() {
         { type: 'info', text: '  help             - Show this help menu' }
       ];
     } else if (cmd === 'ls' || cmd === 'dir') {
+      const allowedExtensions = ['.asm', '.md', '.txt'];
       if (window.__TAURI__) {
         try {
           // Read actual local workspace files!
           const entries = await window.__TAURI__.fs.readDir('.', { recursive: false });
-          const realFiles = entries.map(e => `${e.name.padEnd(20)} ${e.children ? '<DIR>' : `${e.size || 0} bytes`}`);
+          const realFiles = entries
+            .filter(e => e.children || allowedExtensions.some(ext => e.name.toLowerCase().endsWith(ext)))
+            .map(e => `${e.name.padEnd(20)} ${e.children ? '<DIR>' : `${e.size || 0} bytes`}`);
           response = realFiles.map(f => ({ type: 'info', text: f }));
         } catch (err) {
-          const filesList = Object.entries(virtualFiles).map(([path, content]) => {
-            const size = content ? content.length : 0;
-            return `${path.padEnd(25)} ${size} bytes`;
-          });
+          const filesList = Object.entries(virtualFiles)
+            .filter(([path]) => allowedExtensions.some(ext => path.toLowerCase().endsWith(ext)))
+            .map(([path, content]) => {
+              const size = content ? content.length : 0;
+              return `${path.padEnd(25)} ${size} bytes`;
+            });
           response = filesList.map(f => ({ type: 'info', text: f }));
         }
       } else {
-        const filesList = Object.entries(virtualFiles).map(([path, content]) => {
-          const size = content ? content.length : 0;
-          return `${path.padEnd(25)} ${size} bytes`;
-        });
+        const filesList = Object.entries(virtualFiles)
+          .filter(([path]) => allowedExtensions.some(ext => path.toLowerCase().endsWith(ext)))
+          .map(([path, content]) => {
+            const size = content ? content.length : 0;
+            return `${path.padEnd(25)} ${size} bytes`;
+          });
         response = filesList.map(f => ({ type: 'info', text: f }));
       }
     } else if (cmd === 'cat') {
+      const allowedExtensions = ['.asm', '.md', '.txt'];
       if (!arg1) {
         response = [{ type: 'error', text: 'cat: missing filename' }];
       } else {
-        const matchedFile = Object.keys(virtualFiles).find(f => f.toLowerCase() === arg1.toLowerCase() || f.split('/').pop().toLowerCase() === arg1.toLowerCase());
-        if (matchedFile) {
-          response = [{ type: 'info', text: virtualFiles[matchedFile] }];
-        } else if (window.__TAURI__) {
-          try {
-            const fileContent = await window.__TAURI__.fs.readTextFile(args[1]);
-            response = [{ type: 'info', text: fileContent }];
-          } catch (err) {
+        const hasAllowedExtension = allowedExtensions.some(ext => arg1.toLowerCase().endsWith(ext));
+        if (!hasAllowedExtension) {
+          response = [{ type: 'error', text: `cat: ${args[1]}: Permission denied (extension not allowed)` }];
+        } else {
+          const matchedFile = Object.keys(virtualFiles).find(f => f.toLowerCase() === arg1.toLowerCase() || f.split('/').pop().toLowerCase() === arg1.toLowerCase());
+          if (matchedFile) {
+            response = [{ type: 'info', text: virtualFiles[matchedFile] }];
+          } else if (window.__TAURI__) {
+            try {
+              const fileContent = await window.__TAURI__.fs.readTextFile(args[1]);
+              response = [{ type: 'info', text: fileContent }];
+            } catch (err) {
+              response = [{ type: 'error', text: `cat: ${args[1]}: No such file or directory` }];
+            }
+          } else {
             response = [{ type: 'error', text: `cat: ${args[1]}: No such file or directory` }];
           }
-        } else {
-          response = [{ type: 'error', text: `cat: ${args[1]}: No such file or directory` }];
         }
       }
     } else if (cmd === 'tasm') {
@@ -801,8 +828,14 @@ export default function AppFinal() {
 
   const searchResults = searchQuery ? searchInstructions(searchQuery) : [];
 
+  const handleSplashComplete = () => {
+    setShowSplash(false);
+  };
+
   return (
-    <div className={`app-final ${mobileView ? 'mobile' : 'desktop'} ${isDragging ? 'dragging' : ''}`}>
+    <>
+      {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
+      <div className={`app-final ${!showSplash ? 'revealed' : ''} ${mobileView ? 'mobile' : 'desktop'} ${isDragging ? 'dragging' : ''}`}>
       {/* Header */}
       <header className="header-final">
         <div className="header-brand">
@@ -1387,6 +1420,7 @@ export default function AppFinal() {
         </div>
       )}
     </div>
+    </>
   );
 }
 

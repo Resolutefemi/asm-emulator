@@ -6,9 +6,11 @@ import { javascript } from '@codemirror/lang-javascript';
 import CodeMirror from '@uiw/react-codemirror';
 import { darcula } from '@uiw/codemirror-theme-darcula';
 import { Emulator8086 } from './emulator/Emulator8086';
+import SplashScreen from './components/SplashScreen';
 import './styles/App.css';
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
   const [code, setCode] = useState(`; Renance Playground - ASM 8086
 ; Hello, CPU!
 
@@ -541,6 +543,7 @@ end:
           </button>
         </div>
       </div>
+    </div>
     </>
   );
 }
@@ -568,11 +571,6 @@ function loadFromIndexedDB(key) {
       const db = e.target.result;
       const store = db.transaction('code', 'readonly').objectStore('code');
       const getRequest = store.get(key);
-      getRequest.onsuccess = () => resolve(getRequest.result?.data || null);
-    };
-  });
-}
-ey);
       getRequest.onsuccess = () => resolve(getRequest.result?.data || null);
     };
   });

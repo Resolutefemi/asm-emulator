@@ -6,15 +6,18 @@ export const SplashScreen = ({ onComplete }) => {
   const [isExiting, setIsExiting] = useState(false);
 
   useEffect(() => {
+    let transitionTimer;
     const timer = setTimeout(() => {
       setIsExiting(true);
-      const transitionTimer = setTimeout(() => {
+      transitionTimer = setTimeout(() => {
         onComplete();
-      }, 800); // Duration of fade animation
-      return () => clearTimeout(transitionTimer);
-    }, 3000); // Minimum 3 seconds display
+      }, 1000); // Increased duration for a smoother transition
+    }, 6000); // Minimum 6 seconds display
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (transitionTimer) clearTimeout(transitionTimer);
+    };
   }, [onComplete]);
 
   return (

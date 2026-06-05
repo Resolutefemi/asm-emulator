@@ -10,7 +10,7 @@ MAIN PROC
     MOV AX, @DATA
     MOV DS, AX
 
-    ; Display the string
+    ; Display the stringS
     LEA DX, MSG
     MOV AH, 09H
     INT 21H
