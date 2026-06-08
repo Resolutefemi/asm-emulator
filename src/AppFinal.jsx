@@ -13,6 +13,101 @@ import TemplateBrowser from './components/TemplateBrowser';
 import './styles/AppFinal.css';
 import './styles/ActivityBar.css';
 
+const SAMPLE_PROJECTS = [
+  {
+    name: "Print Hello World",
+    code: `; Print Hello World program for 8086 Assembly
+org 100h
+
+jmp start
+
+message db 'Hello, World!$', 0Dh, 0Ah
+
+start:
+    mov dx, offset message ; Load address of message
+    mov ah, 09h            ; DOS interrupt function to print string
+    int 21h                ; Execute interrupt
+
+    hlt                    ; Halt CPU
+`
+  },
+  {
+    name: "Addition of Two Numbers",
+    code: `; Addition of Two Numbers (AX = AX + BX)
+org 100h
+
+mov ax, 15        ; Load first number into AX (decimal 15)
+mov bx, 27        ; Load second number into BX (decimal 27)
+add ax, bx        ; Add BX to AX
+
+hlt               ; Halt CPU (AX now contains 42)
+`
+  },
+  {
+    name: "Loop Array Example",
+    code: `; Loop Array Example - Summing elements of an array
+org 100h
+
+jmp start
+
+array db 5, 10, 15, 20, 25 ; Array of 5 bytes
+sum dw 0                   ; Variable to hold sum
+
+start:
+    mov cx, 5              ; Set loop counter to array length
+    xor ax, ax             ; Clear AX (accumulator for sum)
+    mov bx, offset array   ; Load address of array into BX
+
+sum_loop:
+    mov dl, [bx]           ; Load byte at address BX
+    xor dh, dh             ; Clear high byte of DX
+    add ax, dx             ; Add element to sum
+    inc bx                 ; Point to next element in array
+    loop sum_loop          ; Decrement CX, jump to sum_loop if CX > 0
+
+    mov sum, ax            ; Store total sum in variable
+    hlt                    ; Halt CPU
+`
+  },
+  {
+    name: "String Manipulation",
+    code: `; String Manipulation - Convert string to uppercase
+org 100h
+
+jmp start
+
+string db 'hello assembly world$', 0
+
+start:
+    mov si, offset string  ; Point SI to the start of the string
+
+upper_loop:
+    mov al, [si]           ; Get character
+    cmp al, '$'            ; Check if end of string
+    je done                ; If end, jump to done
+    
+    cmp al, 'a'            ; Compare to 'a'
+    jb next_char           ; If below 'a', next char
+    cmp al, 'z'            ; Compare to 'z'
+    ja next_char           ; If above 'z', next char
+    
+    sub al, 32             ; Convert lowercase to uppercase
+    mov [si], al           ; Store it back
+
+next_char:
+    inc si                 ; Move to next char
+    jmp upper_loop         ; Repeat
+
+done:
+    mov dx, offset string  ; Load address of modified string
+    mov ah, 09h            ; DOS print service
+    int 21h                ; Print string
+
+    hlt                    ; Halt CPU
+`
+  }
+];
+
 // Custom CodeMirror 6 Syntax Highlighter plugin for 8086 Assembly
 const asmHighlightPlugin = ViewPlugin.fromClass(class {
   constructor(view) {
@@ -133,21 +228,160 @@ export default function AppFinal() {
   const [terminalOpen, setTerminalOpen] = useState(true); // Open terminal by default
   const [terminalHeight, setTerminalHeight] = useState(250);
   const [isDragging, setIsDragging] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useRef(null);
+  const [rightMenuOpen, setRightMenuOpen] = useState(false);
+  const [activeMobileModal, setActiveMobileModal] = useState(null); // null | 'cpu' | 'memory' | 'output' | 'reference'
+  const rightMenuRef = useRef(null);
+  const [terminalMaximized, setTerminalMaximized] = useState(false);
+  const [customDialog, setCustomDialog] = useState(null); // null or { type, title, message, defaultValue, onConfirm, onCancel }
+
+  const [samplesDropdownOpen, setSamplesDropdownOpen] = useState(false);
+  const samplesMenuRef = useRef(null);
+  const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
 
   // ── Activity Bar state ──
-  const [activityTab, setActivityTab] = useState(null); // null | 'explorer' | 'templates'
+  const [activityTab, setActivityTab] = useState(window.innerWidth < 768 ? null : 'explorer'); // null | 'explorer' | 'templates'
   const [wsDir, setWsDir] = useState(null);             // opened folder name
   const [wsFiles, setWsFiles] = useState([]);            // { name, handle }[]
   const [wsActiveFile, setWsActiveFile] = useState(null);
+
+  // ── Native File System Access API State ──
+  const [rootHandle, setRootHandle] = useState(null);
+  const [selectedDirectoryHandle, setSelectedDirectoryHandle] = useState(null);
+  const [activeSelectedPath, setActiveSelectedPath] = useState('');
+  const [directoryHandles, setDirectoryHandles] = useState({});
+  const [expandedFolders, setExpandedFolders] = useState({});
 
   const emulatorRef = useRef(new Emulator8086());
   const autoSaveTimerRef = useRef(null);
   const terminalRef = useRef(null);
   const dragStartY = useRef(0);
 
+  const readDirectoryGenerator = async function* (dirHandle, currentPath = '') {
+    for await (const entry of dirHandle.values()) {
+      const entryPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+      if (entry.kind === 'directory') {
+        const children = [];
+        for await (const child of readDirectoryGenerator(entry, entryPath)) {
+          children.push(child);
+        }
+        yield {
+          name: entry.name,
+          kind: 'directory',
+          type: 'folder',
+          children: children,
+          isOpen: false,
+          path: entryPath,
+          handle: entry
+        };
+      } else if (entry.name.endsWith('.asm') || entry.name.endsWith('.md') || entry.name.endsWith('.txt')) {
+        yield {
+          name: entry.name,
+          kind: 'file',
+          type: 'file',
+          path: entryPath,
+          handle: entry
+        };
+      }
+    }
+  };
+
+  const buildNativeTree = async (dirHandle, currentPath = '') => {
+    const nodes = [];
+    for await (const node of readDirectoryGenerator(dirHandle, currentPath)) {
+      nodes.push(node);
+    }
+    return nodes;
+  };
+
+  const showAlert = (title, message) => {
+    return new Promise((resolve) => {
+      setCustomDialog({
+        type: 'alert',
+        title,
+        message,
+        onConfirm: () => {
+          setCustomDialog(null);
+          resolve();
+        }
+      });
+    });
+  };
+
+  const showConfirm = (title, message) => {
+    return new Promise((resolve) => {
+      setCustomDialog({
+        type: 'confirm',
+        title,
+        message,
+        onConfirm: () => {
+          setCustomDialog(null);
+          resolve(true);
+        },
+        onCancel: () => {
+          setCustomDialog(null);
+          resolve(false);
+        }
+      });
+    });
+  };
+
+  const showPrompt = (title, message, defaultValue = '') => {
+    return new Promise((resolve) => {
+      setCustomDialog({
+        type: 'prompt',
+        title,
+        message,
+        defaultValue,
+        onConfirm: (val) => {
+          setCustomDialog(null);
+          resolve(val);
+        },
+        onCancel: () => {
+          setCustomDialog(null);
+          resolve(null);
+        }
+      });
+    });
+  };
+
   // Workspace logic
   const refreshWorkspace = async () => {
-    if (workspacePath && window.__TAURI__) {
+    if (rootHandle) {
+      try {
+        const newFiles = {};
+        const handlesMap = {};
+        handlesMap['root'] = rootHandle;
+        
+        const processHandle = async (dirHandle, parentPath = '') => {
+          for await (const entry of dirHandle.values()) {
+            const relPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+            if (entry.kind === 'directory') {
+              handlesMap[relPath] = entry;
+              await processHandle(entry, relPath);
+            } else {
+              newFiles[relPath] = virtualFiles[relPath] || ''; // Preserve loaded content
+            }
+          }
+        };
+        
+        await processHandle(rootHandle);
+        const newTree = await buildNativeTree(rootHandle);
+        
+        // Preserve isOpen state by mapping old wsFiles to newTree if needed, or simply let the state refresh if this is a hard reload.
+        setDirectoryHandles(handlesMap);
+        setVirtualFiles(newFiles);
+        setWsFiles(newTree);
+        
+        // Context Tracking fallback
+        if (selectedDirectoryHandle && !Object.values(handlesMap).includes(selectedDirectoryHandle)) {
+           setSelectedDirectoryHandle(rootHandle);
+        }
+      } catch (err) {
+        console.error('Failed to refresh workspace natively:', err);
+      }
+    } else if (workspacePath && window.__TAURI__) {
       try {
         const entries = await window.__TAURI__.fs.readDir(workspacePath, { recursive: true });
         const newFiles = {};
@@ -170,7 +404,53 @@ export default function AppFinal() {
   };
 
   const openWorkspace = async () => {
-    if (window.__TAURI__) {
+    if (window.showDirectoryPicker) {
+      try {
+        const handle = await window.showDirectoryPicker();
+        setRootHandle(handle);
+        setSelectedDirectoryHandle(handle); // Context Tracking: Default to root handle
+        setWorkspacePath(handle.name);
+        
+        const newFiles = {};
+        const handlesMap = {};
+        handlesMap['root'] = handle;
+
+        const processHandle = async (dirHandle, parentPath = '') => {
+          for await (const entry of dirHandle.values()) {
+            const relPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+            if (entry.kind === 'directory') {
+              handlesMap[relPath] = entry;
+              await processHandle(entry, relPath);
+            } else {
+              newFiles[relPath] = ''; // Content loaded on demand
+            }
+          }
+        };
+        
+        await processHandle(handle);
+        const newTree = await buildNativeTree(handle);
+        
+        setDirectoryHandles(handlesMap);
+        setVirtualFiles(newFiles);
+        setWsFiles(newTree);
+        
+        const firstAsm = Object.keys(newFiles).find(f => f.endsWith('.asm'));
+        if (firstAsm) {
+          try {
+            const fileHandle = await handle.getFileHandle(firstAsm);
+            const file = await fileHandle.getFile();
+            const text = await file.text();
+            setActiveFile(firstAsm);
+            setCode(text);
+            setVirtualFiles(prev => ({ ...prev, [firstAsm]: text }));
+          } catch (e) {
+            console.error('Failed to load first native file', e);
+          }
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') console.error('Failed to open workspace natively:', err);
+      }
+    } else if (window.__TAURI__) {
       try {
         const selected = await window.__TAURI__.dialog.open({
           directory: true,
@@ -179,7 +459,6 @@ export default function AppFinal() {
         });
         if (selected) {
           setWorkspacePath(selected);
-          // Initial read of workspace files
           const entries = await window.__TAURI__.fs.readDir(selected, { recursive: true });
           const newFiles = {};
           const processEntries = (items, parent = '') => {
@@ -188,14 +467,13 @@ export default function AppFinal() {
               if (item.children) {
                 processEntries(item.children, relPath);
               } else {
-                newFiles[relPath] = ''; // Content will be loaded on demand
+                newFiles[relPath] = '';
               }
             });
           };
           processEntries(entries);
           setVirtualFiles(newFiles);
           
-          // Set first .asm file as active if exists
           const firstAsm = Object.keys(newFiles).find(f => f.endsWith('.asm'));
           if (firstAsm) {
             setActiveFile(firstAsm);
@@ -223,7 +501,7 @@ export default function AppFinal() {
       try {
         await window.__TAURI__.fs.renameFile(`${workspacePath}/${oldPath}`, `${workspacePath}/${newPath}`);
       } catch (err) {
-        alert(`Failed to rename: ${err.message}`);
+        showAlert('Rename Failed', `Failed to rename: ${err.message}`);
         return;
       }
     }
@@ -282,7 +560,7 @@ export default function AppFinal() {
         ]);
       } catch (err) {
         console.error('Failed to save to disk:', err);
-        alert(`Save failed: ${err.message}`);
+        showAlert('Save Failed', `Save failed: ${err.message}`);
       }
     } else {
       // Fallback/Web VFS save
@@ -554,6 +832,39 @@ export default function AppFinal() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
 
+  // Mobile menu click outside handler
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (mobileMenuOpen && mobileMenuRef.current && !mobileMenuRef.current.contains(e.target)) {
+        setMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [mobileMenuOpen]);
+
+  // Right menu click outside handler
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (rightMenuOpen && rightMenuRef.current && !rightMenuRef.current.contains(e.target)) {
+        setRightMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [rightMenuOpen]);
+
+  // Samples dropdown click outside handler
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (samplesDropdownOpen && samplesMenuRef.current && !samplesMenuRef.current.contains(e.target)) {
+        setSamplesDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [samplesDropdownOpen]);
+
   const downloadAsmFile = () => {
     const element = document.createElement("a");
     const file = new Blob([code], { type: 'text/plain' });
@@ -564,42 +875,35 @@ export default function AppFinal() {
     document.body.removeChild(element);
   };
 
-  // Recursive File Explorer VFS Helper
-  const getFileTree = () => {
-    const root = { name: 'root', type: 'folder', children: {} };
-    const allowedExtensions = ['.asm', '.md', '.txt'];
-    
-    Object.keys(virtualFiles).forEach(filepath => {
-      // Strict Extension Filtering
-      const hasAllowedExtension = allowedExtensions.some(ext => filepath.toLowerCase().endsWith(ext));
-      if (!hasAllowedExtension) return;
-
-      const parts = filepath.split('/');
-      let current = root;
-      
-      parts.forEach((part, index) => {
-        if (index === parts.length - 1) {
-          // It's a file
-          current.children[part] = { name: part, type: 'file', path: filepath };
-        } else {
-          // It's a folder
-          if (!current.children[part]) {
-            current.children[part] = { name: part, type: 'folder', children: {} };
-          }
-          current = current.children[part];
+  const addNodeToTree = (treeNodes, parentPath, newNode) => {
+    return treeNodes.map(node => {
+      if (node.kind === 'directory') {
+        if (node.path === parentPath) {
+          return {
+            ...node,
+            children: [...node.children, newNode],
+            isOpen: true
+          };
+        } else if (node.children) {
+          return {
+            ...node,
+            children: addNodeToTree(node.children, parentPath, newNode)
+          };
         }
-      });
+      }
+      return node;
     });
-    return root;
   };
 
-  const renderTree = (node, depth = 0) => {
-    const items = Object.values(node.children).sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+  const renderTree = (items, depth = 0) => {
+    if (!Array.isArray(items)) return null;
+
+    const sortedItems = [...items].sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
 
-    if (items.length === 0 && depth === 0 && workspacePath) {
+    if (sortedItems.length === 0 && depth === 0 && workspacePath) {
       return (
         <div className="empty-tree-message">
           <p>Your workspace is empty.</p>
@@ -610,19 +914,49 @@ export default function AppFinal() {
       );
     }
 
-    return items.map(item => {
-      if (item.type === 'folder') {
+    return sortedItems.map(item => {
+      if (item.kind === 'directory' || item.type === 'folder') {
+        const isExpanded = item.isOpen;
         return (
-          <div key={item.name} className="tree-folder-group">
-            <div className="tree-folder-header" style={{ paddingLeft: `${depth * 12 + 14}px` }}>
+          <div key={item.path || item.name} className="tree-folder-group">
+            <div 
+              className={`tree-folder-header ${item.path === activeSelectedPath ? 'active-target' : ''}`}
+              style={{ 
+                paddingLeft: `${depth * 12 + 14}px`,
+                background: item.path === activeSelectedPath ? '#2d333b' : 'transparent',
+                borderLeft: item.path === activeSelectedPath ? '3px solid #58a6ff' : '3px solid transparent',
+                color: item.path === activeSelectedPath ? '#ffffff' : 'inherit'
+              }}
+              onClick={async (e) => {
+                e.stopPropagation();
+                setActiveSelectedPath(item.path);
+                if (item.handle) {
+                  setSelectedDirectoryHandle(item.handle);
+                }
+                const isNowOpen = !item.isOpen;
+                let newChildren = item.children;
+                if (isNowOpen && item.handle) {
+                  newChildren = [];
+                  for await (const node of readDirectoryGenerator(item.handle, item.path)) {
+                    newChildren.push(node);
+                  }
+                }
+                const toggleNode = (nodes) => nodes.map(n => {
+                  if (n.path === item.path) return { ...n, isOpen: isNowOpen, children: newChildren };
+                  if (n.children) return { ...n, children: toggleNode(n.children) };
+                  return n;
+                });
+                setWsFiles(toggleNode(wsFiles));
+              }}
+            >
               <span className="tree-icon">📁</span>
               <span className="tree-name">{item.name}</span>
               <div className="tree-item-actions">
                 <button 
                   className="tree-item-action-btn"
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.stopPropagation();
-                    const newName = prompt('Enter new folder name:', item.name);
+                    const newName = await showPrompt('Rename Folder', 'Enter new folder name:', item.name);
                     if (newName) handleRename(item.name, newName);
                   }}
                   title="Rename Folder"
@@ -641,27 +975,38 @@ export default function AppFinal() {
                 </button>
               </div>
             </div>
-            <div className="tree-folder-children">
-              {renderTree(item, depth + 1)}
-            </div>
+            {isExpanded && (
+              <div className="tree-folder-children">
+                {renderTree(item, depth + 1)}
+              </div>
+            )}
           </div>
         );
       } else {
         return (
           <div
             key={item.path}
-            className={`tree-file-item ${activeFile === item.path ? 'active' : ''}`}
-            onClick={() => selectActiveFile(item.path)}
-            style={{ paddingLeft: `${depth * 12 + 14}px` }}
+            className={`tree-file-item ${item.path === activeSelectedPath ? 'active-target active' : (activeFile === item.path ? 'active' : '')}`}
+            style={{ 
+              paddingLeft: `${depth * 12 + 14}px`,
+              background: item.path === activeSelectedPath ? '#2d333b' : 'transparent',
+              borderLeft: item.path === activeSelectedPath ? '3px solid #58a6ff' : '3px solid transparent',
+              color: item.path === activeSelectedPath ? '#ffffff' : 'inherit'
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveSelectedPath(item.path);
+              selectActiveFile(item.path);
+            }}
           >
             <span className="tree-icon">📄</span>
             <span className="tree-name">{item.name}</span>
             <div className="tree-item-actions">
               <button 
                 className="tree-item-action-btn"
-                onClick={(e) => {
+                onClick={async (e) => {
                   e.stopPropagation();
-                  const newName = prompt('Enter new file name:', item.name);
+                  const newName = await showPrompt('Rename File', 'Enter new file name:', item.name);
                   if (newName) handleRename(item.path, newName);
                 }}
                 title="Rename File"
@@ -727,6 +1072,9 @@ export default function AppFinal() {
       ...prev,
       [filepath]: fileContent
     }));
+    
+    // Auto-close mobile explorer overlay
+    setMobileExplorerOpen(false);
   };
 
   const triggerCreateFile = () => {
@@ -747,52 +1095,138 @@ export default function AppFinal() {
       setIsCreatingFile(false);
       return;
     }
-    if (virtualFiles[filename] !== undefined) {
-      alert("File already exists!");
-      setIsCreatingFile(false);
-      return;
-    }
 
     const defaultContent = "; New assembly file\n";
-    
-    // Save to disk if workspace is open
-    if (workspacePath && window.__TAURI__) {
+    const targetDir = selectedDirectoryHandle || rootHandle;
+
+    if (targetDir) {
       try {
-        await window.__TAURI__.fs.writeTextFile(`${workspacePath}/${filename}`, defaultContent);
+        const newFileHandle = await targetDir.getFileHandle(filename, { create: true });
+        const writable = await newFileHandle.createWritable();
+        await writable.write(defaultContent);
+        await writable.close();
+
+        const parentPath = Object.keys(directoryHandles).find(k => directoryHandles[k] === targetDir);
+        const newFullPath = parentPath && parentPath !== 'root' ? `${parentPath}/${filename}` : filename;
+        
+        // Automated Tree State Synchronization
+        const newRootChildren = [];
+        for await (const node of readDirectoryGenerator(rootHandle)) {
+          newRootChildren.push(node);
+        }
+
+        const mergeState = (newNodes, oldNodes) => {
+          return newNodes.map(newNode => {
+            if (newNode.kind === 'directory' || newNode.type === 'folder') {
+              const oldNode = oldNodes?.find(n => n.path === newNode.path);
+              const isTargetParent = newNode.path === parentPath || (parentPath === 'root' && !newNode.path);
+              const shouldBeOpen = isTargetParent || (oldNode ? oldNode.isOpen : false);
+              return {
+                ...newNode,
+                isOpen: shouldBeOpen,
+                children: mergeState(newNode.children || [], oldNode?.children || [])
+              };
+            }
+            return newNode;
+          });
+        };
+        
+        const updatedTree = mergeState(newRootChildren, wsFiles);
+        setWsFiles(updatedTree);
+        
+        setVirtualFiles(prev => ({
+          ...prev,
+          [newFullPath]: defaultContent
+        }));
+        setActiveFile(newFullPath);
+        setCode(defaultContent);
+
       } catch (err) {
         console.error('Failed to create file on disk:', err);
+        showAlert('Error', `Failed to create file: ${err.message}`);
       }
-    }
-
-    const parts = filename.split('/');
-    if (parts.length > 1) {
-      const folder = parts[0];
-      if (!virtualDirs.includes(folder)) {
-        setVirtualDirs(prev => [...prev, folder]);
+    } else {
+      if (workspacePath && window.__TAURI__) {
+        try {
+          await window.__TAURI__.fs.writeTextFile(`${workspacePath}/${filename}`, defaultContent);
+        } catch (err) {
+          console.error('Failed to create file on disk:', err);
+        }
+      } else if (virtualFiles[filename] !== undefined) {
+        showAlert('Error', "File already exists!");
+        setIsCreatingFile(false);
+        return;
       }
+      
+      const parts = filename.split('/');
+      if (parts.length > 1) {
+        const folder = parts[0];
+        if (!virtualDirs.includes(folder)) {
+          setVirtualDirs(prev => [...prev, folder]);
+        }
+      }
+      setVirtualFiles(prev => ({ ...prev, [filename]: defaultContent }));
+      setActiveFile(filename);
+      setCode(defaultContent);
     }
-    setVirtualFiles(prev => ({
-      ...prev,
-      [filename]: defaultContent
-    }));
-    setActiveFile(filename);
-    setCode(defaultContent);
+    
     setIsCreatingFile(false);
     setNewItemName('');
   };
 
-  const handleNewFolderSubmit = (val) => {
+  const handleNewFolderSubmit = async (val) => {
     const foldername = (val !== undefined ? val : newItemName).trim();
     if (!foldername) {
       setIsCreatingFolder(false);
       return;
     }
-    if (virtualDirs.includes(foldername)) {
-      alert("Folder already exists!");
-      setIsCreatingFolder(false);
-      return;
+
+    const targetDir = selectedDirectoryHandle || rootHandle;
+    if (targetDir) {
+      try {
+        const newlyCreatedDirectoryHandle = await targetDir.getDirectoryHandle(foldername, { create: true });
+        
+        const parentPath = Object.keys(directoryHandles).find(k => directoryHandles[k] === targetDir);
+        const newFullPath = parentPath && parentPath !== 'root' ? `${parentPath}/${foldername}` : foldername;
+        
+        // Automated Tree State Synchronization
+        const newRootChildren = [];
+        for await (const node of readDirectoryGenerator(rootHandle)) {
+          newRootChildren.push(node);
+        }
+
+        const mergeState = (newNodes, oldNodes) => {
+          return newNodes.map(newNode => {
+            if (newNode.kind === 'directory' || newNode.type === 'folder') {
+              const oldNode = oldNodes?.find(n => n.path === newNode.path);
+              const isTargetParent = newNode.path === parentPath || (parentPath === 'root' && !newNode.path);
+              const shouldBeOpen = isTargetParent || (oldNode ? oldNode.isOpen : false);
+              return {
+                ...newNode,
+                isOpen: shouldBeOpen,
+                children: mergeState(newNode.children || [], oldNode?.children || [])
+              };
+            }
+            return newNode;
+          });
+        };
+        
+        const updatedTree = mergeState(newRootChildren, wsFiles);
+        setWsFiles(updatedTree);
+        setDirectoryHandles(prev => ({ ...prev, [newFullPath]: newlyCreatedDirectoryHandle }));
+        
+      } catch (err) {
+        console.error('Failed to create folder on disk:', err);
+        showAlert('Error', `Failed to create folder: ${err.message}`);
+      }
+    } else {
+      if (virtualDirs.includes(foldername)) {
+        showAlert('Error', "Folder already exists!");
+      } else {
+        setVirtualDirs(prev => [...prev, foldername]);
+      }
     }
-    setVirtualDirs(prev => [...prev, foldername]);
+    
     setIsCreatingFolder(false);
     setNewItemName('');
   };
@@ -813,7 +1247,8 @@ export default function AppFinal() {
   };
 
   const deleteFile = async (filepath) => {
-    if (!window.confirm(`Are you sure you want to delete '${filepath}'?`)) return;
+    const confirmed = await showConfirm('Delete File', `Are you sure you want to delete '${filepath}'?`);
+    if (!confirmed) return;
     
     if (workspacePath && window.__TAURI__) {
       try {
@@ -842,7 +1277,8 @@ export default function AppFinal() {
   };
 
   const deleteFolder = async (folderName) => {
-    if (!window.confirm(`Are you sure you want to delete folder '${folderName}' and all its contents?`)) return;
+    const confirmed = await showConfirm('Delete Folder', `Are you sure you want to delete folder '${folderName}' and all its contents?`);
+    if (!confirmed) return;
     
     if (workspacePath && window.__TAURI__) {
       try {
@@ -1122,141 +1558,10 @@ export default function AppFinal() {
     setShowSplash(false);
   };
 
-  // FORCE INITIALIZER STATE
-  if (!showSplash && !workspacePath) {
-    return (
-      <div className="workspace-initializer">
-        <div className="init-content">
-          <div className="init-logo">⚙️</div>
-          <h1 className="init-title">Renance Playground</h1>
-          <p className="init-subtitle">No workspace open. Select a local folder to begin your 8086 Assembly journey.</p>
-          <div className="init-actions">
-            <button className="btn btn-primary btn-large" onClick={openWorkspace}>
-              📁 Open Workspace Folder
-            </button>
-          </div>
-          <div className="init-footer">
-            <span>Powered by Resolute Femi</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
       {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
-      <div className={`app-final ${(!showSplash && workspacePath) ? 'revealed' : ''} ${mobileView ? 'mobile' : 'desktop'} ${isDragging ? 'dragging' : ''}`}>
-      {/* Header */}
-      <header className="header-final">
-        <div className="header-brand">
-          <div className="brand-title-group">
-            <h1>{mobileView ? '⚙️ Renance' : '⚙️ Renance Playground'}</h1>
-            <span className="by-resolute-femi">by Resolute Femi</span>
-          </div>
-          {!mobileView && <span className="badge">8086 Full ISA</span>}
-        </div>
-
-        <div className="header-controls">
-          <button
-            className={`btn btn-outline ${fileExplorerOpen ? 'active' : ''}`}
-            onClick={() => setFileExplorerOpen(!fileExplorerOpen)}
-            title="Toggle File Explorer"
-          >
-            {mobileView ? '📁' : '📁 Files'}
-          </button>
-          
-          <select 
-            className="select-template-final" 
-            onChange={(e) => {
-              const selected = e.target.value;
-              let targetCode = '';
-              if (selected === 'hello') {
-                targetCode = `.MODEL SMALL\n.STACK 100H\n.DATA\n    MSG DB 'How are you doing$'\n.CODE\nMAIN PROC\n    MOV AX, @DATA\n    MOV DS, AX\n    LEA DX, MSG\n    MOV AH, 09H\n    INT 21H\n    MOV AH, 4CH\n    INT 21H\nMAIN ENDP\nEND MAIN`;
-              } else if (selected === 'fib') {
-                targetCode = `; Fibonacci Sequence\n; Generates first 10 Fibonacci numbers\n; Stores them in memory starting at 0x0200\n\nORG 200H\n\nMOV CX, 10\nMOV SI, 0x200\n\nMOV AL, 0\nMOV [SI], AL\nINC SI\n\nMOV BL, 1\nMOV [SI], BL\nINC SI\n\nSUB CX, 2\n\nfib_loop:\n    ADD AL, BL\n    MOV [SI], AL\n    INC SI\n    MOV DL, BL\n    MOV BL, AL\n    MOV AL, DL\n    LOOP fib_loop\n\nHLT`;
-              } else if (selected === 'loop') {
-                targetCode = `; Loop Counter Example\nMOV CX, 10\nMOV AX, 0\n\ncount_loop:\n    ADD AX, CX\n    LOOP count_loop\n\nHLT`;
-              } else if (selected === 'math') {
-                targetCode = `; Basic Arithmetic and Flags\nMOV AX, 0x50\nMOV BX, 0x20\nADD AX, BX         ; AX = 0x70\n\nSUB AX, 0x70       ; AX = 0, Zero Flag (ZF) is set\n\nMOV CX, 0xFFFF\nINC CX             ; CX = 0 (ZF, CF set)\n\nHLT`;
-              } else if (selected === 'calc') {
-                targetCode = `; Simple Calculator Simulation\n; Set inputs in AL and BL, operator in CL:\n; CL = 1 (Add), CL = 2 (Subtract), CL = 3 (XOR)\nMOV AL, 15         ; Input 1\nMOV BL, 7          ; Input 2\nMOV CL, 1          ; Operator (1 = Add)\n\nCMP CL, 1\nJE DO_ADD\nCMP CL, 2\nJE DO_SUB\nCMP CL, 3\nJE DO_XOR\nJMP CALC_DONE\n\nDO_ADD:\n    ADD AL, BL     ; Result in AL\n    JMP CALC_DONE\n\nDO_SUB:\n    SUB AL, BL     ; Result in AL\n    JMP CALC_DONE\n\nDO_XOR:\n    XOR AL, BL     ; Result in AL\n\nCALC_DONE:\n    HLT`;
-              } else if (selected === 'sort') {
-                targetCode = `; Array Bubble Sort Example\n; Sorts 5 bytes in memory starting at 0x200\n\nORG 200H\n\n; Setup array elements in memory\nMOV BX, 0x200\nMOV BYTE [BX], 5\nMOV BYTE [BX+1], 2\nMOV BYTE [BX+2], 8\nMOV BYTE [BX+3], 1\nMOV BYTE [BX+4], 4\n\nMOV CX, 5          ; N = 5\n\nouter_loop:\n    DEC CX             ; N - 1 passes\n    JZ sort_done\n    \n    MOV SI, 0x200      ; Start of array\n    MOV DX, CX         ; Inner loop counter\n\ninner_loop:\n    MOV AL, [SI]       ; Load current element\n    MOV BL, [SI+1]     ; Load next element\n    CMP AL, BL\n    JBE no_swap        ; If AL <= BL, no swap\n    \n    ; Swap elements\n    MOV [SI], BL\n    MOV [SI+1], AL\n\nno_swap:\n    INC SI             ; Move to next element\n    DEC DX\n    JNZ inner_loop\n    JMP outer_loop\n\nsort_done:\n    HLT`;
-              }
-              if (targetCode) {
-                setCode(targetCode);
-                setVirtualFiles(prev => ({
-                  ...prev,
-                  [activeFile]: targetCode
-                }));
-                setIsDirty(true);
-              }
-              resetCode();
-            }}
-            defaultValue=""
-          >
-            <option value="" disabled>{mobileView ? '📂 Examples' : '📂 Load Example...'}</option>
-            <option value="hello">Hello World (Print String)</option>
-            <option value="fib">Fibonacci Sequence (Memory Store)</option>
-            <option value="loop">Loop Counter</option>
-            <option value="math">Arithmetic & Flags</option>
-            <option value="calc">Simple Calculator</option>
-            <option value="sort">Bubble Sort Array (0x200)</option>
-          </select>
-
-          {/* Unified Run Dropdown */}
-          <div className="run-split-button-container">
-            <button className="btn btn-primary btn-run-main" onClick={runCode} title="Run Code (F5)">
-              {mobileView ? '▶' : '▶ Run'}
-            </button>
-            <button 
-              className={`btn btn-primary btn-run-toggle ${showRunDropdown ? 'active' : ''}`}
-              onClick={() => setShowRunDropdown(!showRunDropdown)}
-            >
-              ▾
-            </button>
-            
-            {showRunDropdown && (
-              <div className="run-dropdown-menu">
-                <button className="dropdown-item" onClick={() => { stepCode(); setShowRunDropdown(false); }}>
-                  <span className="item-icon">🐾</span>
-                  <span className="item-text">Step Debug (F10)</span>
-                </button>
-                <button className="dropdown-item" onClick={() => { resetCode(); setShowRunDropdown(false); }}>
-                  <span className="item-icon">🔄</span>
-                  <span className="item-text">Reset CPU</span>
-                </button>
-                <div className="dropdown-divider"></div>
-                <button className="dropdown-item danger" onClick={() => { clearCode(); setShowRunDropdown(false); }}>
-                  <span className="item-icon">🗑</span>
-                  <span className="item-text">Clear All</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {!mobileView && (
-            <>
-              <button
-                className={`btn btn-info ${showReference ? 'active' : ''}`}
-                onClick={() => setShowReference(!showReference)}
-                title="Toggle Reference"
-              >
-                📚 Reference
-              </button>
-              <button
-                className={`btn btn-outline ${terminalOpen ? 'active' : ''}`}
-                onClick={() => setTerminalOpen(!terminalOpen)}
-                title="Toggle Terminal"
-              >
-                💻 Terminal
-              </button>
-            </>
-          )}
-        </div>
-      </header>
-
+      <div className={`app-final ${(!showSplash) ? 'revealed' : ''} ${mobileView ? 'mobile' : 'desktop'} ${isDragging ? 'dragging' : ''}`}>
       {/* Main Content */}
       <div className="main-content">
         {/* ── Activity Bar: 48px, desktop only ── */}
@@ -1265,118 +1570,298 @@ export default function AppFinal() {
         {/* ── Primary Sidebar: swaps content on tab change ── */}
         <div className={`primary-sidebar${activityTab ? '' : ' sidebar-hidden'}`}>
           {activityTab === 'explorer' && (
-            <WorkspaceExplorer
-              workspaceDir={wsDir}
-              workspaceFiles={wsFiles}
-              activeFile={wsActiveFile}
-              onSelectFile={async (fileEntry) => {
-                try {
-                  const file = await fileEntry.handle.getFile();
-                  const text = await file.text();
-                  setCode(text);
-                  setWsActiveFile(fileEntry.name);
-                } catch (err) { console.error(err); }
-              }}
-              onOpenFolder={async () => {
-                try {
-                  const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
-                  const files = [];
-                  for await (const [name, handle] of dirHandle.entries()) {
-                    if (handle.kind === 'file' && name.toLowerCase().endsWith('.asm')) {
-                      files.push({ name, handle });
-                    }
-                  }
-                  files.sort((a, b) => a.name.localeCompare(b.name));
-                  setWsDir(dirHandle.name);
-                  setWsFiles(files);
-                  setWsActiveFile(null);
-                } catch (err) {
-                  if (err.name !== 'AbortError') console.error(err);
-                }
-              }}
-            />
+            <div className="sidebar-explorer sidebar-explorer--inline">
+              {!workspacePath ? (
+                <div className="ws-no-folder" style={{ padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                  <div className="ws-no-folder-inner">
+                    <p className="ws-no-folder-heading" style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--text-secondary)', marginBottom: '16px' }}>NO FOLDER OPENED</p>
+                    <p className="ws-no-folder-sub" style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px' }}>You have not yet opened a folder.</p>
+                    <button
+                      className="btn btn-primary"
+                      style={{ width: '100%', marginBottom: '16px', padding: '6px 12px' }}
+                      onClick={openWorkspace}
+                    >
+                      Open Folder
+                    </button>
+                    <p className="ws-no-folder-hint" style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, opacity: 0.8 }}>
+                      Opening a folder will close all currently open editors. To keep them open, add a folder instead.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="explorer-header">
+                    <span className="explorer-title" title={workspacePath}>
+                      {workspacePath ? workspacePath.split(/[\/\\]/).pop() : 'EXPLORER'}
+                    </span>
+                    <div className="explorer-actions">
+                      <button className="explorer-action-btn" onClick={refreshWorkspace} title="Refresh">🔄</button>
+                      <button className="explorer-action-btn" onClick={triggerCreateFile} title="New File">📄+</button>
+                      <button className="explorer-action-btn" onClick={triggerCreateFolder} title="New Folder">📁+</button>
+                      {workspacePath && (
+                        <button className="explorer-action-btn" onClick={() => {
+                          setWorkspacePath(null);
+                          setRootHandle(null);
+                          setSelectedDirectoryHandle(null);
+                          setDirectoryHandles({});
+                          setVirtualFiles({});
+                        }} title="Close Workspace">✕</button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="explorer-tree">
+                {isCreatingFolder && (
+                  <div className="tree-folder-group editing">
+                    <div className="tree-folder-header">
+                      <span className="tree-icon">📁</span>
+                      <input
+                        type="text"
+                        className="inline-explorer-input"
+                        value={newItemName}
+                        onChange={(e) => setNewItemName(e.target.value)}
+                        onKeyDown={(e) => handleInlineInputKeyDown(e, 'folder')}
+                        onBlur={(e) => { const val = e.target.value; setTimeout(() => handleNewFolderSubmit(val), 150); }}
+                        autoFocus
+                        placeholder="New folder..."
+                      />
+                    </div>
+                  </div>
+                )}
+                {renderTree(wsFiles)}
+                {isCreatingFile && (
+                  <div className="tree-file-item root-file editing">
+                    <span className="tree-icon">📄</span>
+                    <input
+                      type="text"
+                      className="inline-explorer-input"
+                      value={newItemName}
+                      onChange={(e) => setNewItemName(e.target.value)}
+                      onKeyDown={(e) => handleInlineInputKeyDown(e, 'file')}
+                      onBlur={(e) => { const val = e.target.value; setTimeout(() => handleNewFileSubmit(val), 150); }}
+                      autoFocus
+                      placeholder="new_file.asm..."
+                    />
+                  </div>
+                )}
+              </div>
+              </>
+              )}
+            </div>
           )}
           {activityTab === 'templates' && (
             <TemplateBrowser onInsertTemplate={(tmplCode) => setCode(tmplCode)} />
           )}
         </div>
 
-        {/* Sidebar File Explorer */}
-        {fileExplorerOpen && (
-          <div className="sidebar-explorer">
-            <div className="explorer-header">
-              <span className="explorer-title" title={workspacePath}>
-                📁 {workspacePath ? workspacePath.split(/[\\/]/).pop() : 'Workspace'}
-              </span>
-              <div className="explorer-actions">
-                <button className="explorer-action-btn" onClick={refreshWorkspace} title="Refresh Workspace">🔄</button>
-                <button className="explorer-action-btn" onClick={triggerCreateFile} title="New File">📄+</button>
-                <button className="explorer-action-btn" onClick={triggerCreateFolder} title="New Folder">📁+</button>
-                <button className="explorer-action-btn" onClick={() => setWorkspacePath(null)} title="Close Workspace">✕</button>
-              </div>
-            </div>
-            
-            <div className="explorer-tree">
-              {/* Inline Folder Creation Input */}
-              {isCreatingFolder && (
-                <div className="tree-folder-group editing">
-                  <div className="tree-folder-header">
-                    <span className="tree-icon">📁</span>
-                    <input
-                      type="text"
-                      className="inline-explorer-input"
-                      value={newItemName}
-                      onChange={(e) => setNewItemName(e.target.value)}
-                      onKeyDown={(e) => handleInlineInputKeyDown(e, 'folder')}
-                      onBlur={(e) => {
-                        const val = e.target.value;
-                        setTimeout(() => handleNewFolderSubmit(val), 150);
-                      }}
-                      autoFocus
-                      placeholder="New folder..."
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Recursive Tree rendering */}
-              {renderTree(getFileTree())}
-              
-              {/* Inline File Creation Input */}
-              {isCreatingFile && (
-                <div className="tree-file-item root-file editing">
-                  <span className="tree-icon">📄</span>
-                  <input
-                    type="text"
-                    className="inline-explorer-input"
-                    value={newItemName}
-                    onChange={(e) => setNewItemName(e.target.value)}
-                    onKeyDown={(e) => handleInlineInputKeyDown(e, 'file')}
-                    onBlur={(e) => {
-                      const val = e.target.value;
-                      setTimeout(() => handleNewFileSubmit(val), 150);
-                    }}
-                    autoFocus
-                    placeholder="new_file.asm..."
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Editor Panel */}
         <div className="editor-panel">
           <div className="panel-header">
-            <div className="panel-header-left">
-              <span className="panel-title">📝 Code Editor {activeFile ? `(${activeFile})` : ''}</span>
+            <div className="panel-header-left" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                📝 Code Editor {activeFile ? `(${activeFile.split('/').pop()})` : '(Untitled.asm)'}
+                <div className="samples-dropdown-container" ref={samplesMenuRef} style={{ position: 'relative', display: 'inline-block' }}>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSamplesDropdownOpen(!samplesDropdownOpen);
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      padding: '4px 8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      borderRadius: '4px',
+                      marginLeft: '4px'
+                    }}
+                    onMouseOver={(e) => e.target.style.background = 'var(--bg-hover)'}
+                    onMouseOut={(e) => e.target.style.background = 'transparent'}
+                  >
+                    ▼
+                  </button>
+                  {samplesDropdownOpen && (
+                    <div className="samples-dropdown-menu" style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      marginTop: '6px',
+                      background: 'var(--bg-panel)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
+                      zIndex: 10000,
+                      minWidth: '240px',
+                      maxHeight: '220px',
+                      overflowY: 'auto',
+                      display: 'flex',
+                      flexDirection: 'column'
+                    }}>
+                      <div style={{
+                        padding: '10px 14px',
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        color: 'var(--text-tertiary)',
+                        borderBottom: '1px solid var(--border)',
+                        letterSpacing: '0.05em'
+                      }}>
+                        SAMPLE PROJECTS
+                      </div>
+                      {SAMPLE_PROJECTS.map((project, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            setCode(project.code);
+                            if (activeFile) {
+                              setVirtualFiles(prev => ({ ...prev, [activeFile]: project.code }));
+                            }
+                            setSamplesDropdownOpen(false);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '12px 14px',
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--text-secondary)',
+                            textAlign: 'left',
+                            fontSize: '13px',
+                            cursor: 'pointer',
+                            borderBottom: idx === SAMPLE_PROJECTS.length - 1 ? 'none' : '1px solid rgba(255, 255, 255, 0.02)',
+                            transition: 'all 0.2s'
+                          }}
+                          onMouseOver={(e) => { e.target.style.background = 'var(--bg-hover)'; e.target.style.color = 'var(--text-primary)'; }}
+                          onMouseOut={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-secondary)'; }}
+                        >
+                          📂 {project.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </span>
               {isDirty && <span className="dirty-indicator">●</span>}
             </div>
             <div className="panel-header-actions">
               {mobileView && (
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => setMobileExplorerOpen(true)}
+                  title="Open File Explorer"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px 10px', fontSize: '13px', fontWeight: '600' }}
+                >
+                  📁
+                </button>
+              )}
+              <button className="btn btn-success btn-run-top" onClick={runCode} title="Run Program (F5)">
+                ▶ Run
+              </button>
+              {mobileView && (
                 <button className={`btn btn-primary btn-save-mobile ${isDirty ? 'pulse' : ''}`} onClick={handleSave} title="Save File">
                   💾 Save
                 </button>
+              )}
+              {mobileView && (
+                <div className="right-menu-container" ref={rightMenuRef} style={{ position: 'relative' }}>
+                  <button className="btn btn-secondary right-menu-btn" onClick={() => setRightMenuOpen(!rightMenuOpen)}>
+                    ⚙ Panels ▾
+                  </button>
+                  {rightMenuOpen && (
+                    <div className="right-menu-dropdown" style={{
+                      position: 'absolute',
+                      top: '100%',
+                      right: 0,
+                      marginTop: '6px',
+                      background: 'var(--bg-panel)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.5)',
+                      zIndex: 9999,
+                      minWidth: '180px',
+                      overflow: 'hidden',
+                      display: 'flex',
+                      flexDirection: 'column'
+                    }}>
+                      <button className="right-menu-item" style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-secondary)',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px'
+                      }} onClick={() => { setActiveMobileModal('cpu'); setRightMenuOpen(false); }}
+                      onMouseOver={(e) => { e.target.style.background = 'var(--bg-hover)'; e.target.style.color = 'var(--text-primary)'; }}
+                      onMouseOut={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-secondary)'; }}>
+                        💻 CPU State
+                      </button>
+                      <button className="right-menu-item" style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-secondary)',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px'
+                      }} onClick={() => { setActiveMobileModal('memory'); setRightMenuOpen(false); }}
+                      onMouseOver={(e) => { e.target.style.background = 'var(--bg-hover)'; e.target.style.color = 'var(--text-primary)'; }}
+                      onMouseOut={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-secondary)'; }}>
+                        🧠 Memory Explorer
+                      </button>
+                      <button className="right-menu-item" style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-secondary)',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px'
+                      }} onClick={() => { setActiveMobileModal('output'); setRightMenuOpen(false); }}
+                      onMouseOver={(e) => { e.target.style.background = 'var(--bg-hover)'; e.target.style.color = 'var(--text-primary)'; }}
+                      onMouseOut={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-secondary)'; }}>
+                        📊 Output Log
+                      </button>
+                      <button className="right-menu-item" style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-secondary)',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px'
+                      }} onClick={() => { setActiveMobileModal('reference'); setRightMenuOpen(false); }}
+                      onMouseOver={(e) => { e.target.style.background = 'var(--bg-hover)'; e.target.style.color = 'var(--text-primary)'; }}
+                      onMouseOut={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-secondary)'; }}>
+                        📚 Instruction Reference
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
               <span className="auto-save-indicator">💾 Auto-saving...</span>
             </div>
@@ -1615,17 +2100,19 @@ export default function AppFinal() {
       {/* Terminal (Floating/Bottom) */}
       {terminalOpen && (
         <div
-          className={`terminal-container ${mobileView ? 'mobile-terminal' : 'desktop-terminal'}`}
-          style={!mobileView ? { height: `${terminalHeight}px` } : {}}
+          className={`terminal-container ${mobileView ? 'mobile-terminal' : 'desktop-terminal'} ${terminalMaximized ? 'maximized' : ''}`}
+          style={(!mobileView && !terminalMaximized) ? { height: `${terminalHeight}px` } : {}}
           ref={terminalRef}
         >
-          <div
-            className="terminal-handle"
-            onMouseDown={handleTerminalMouseDown}
-            onTouchStart={handleTerminalTouchStart}
-          >
-            <span className="handle-text">{'⋮⋮ Drag to Resize ⋮⋮'}</span>
-          </div>
+          {!terminalMaximized && (
+            <div
+              className="terminal-handle"
+              onMouseDown={handleTerminalMouseDown}
+              onTouchStart={handleTerminalTouchStart}
+            >
+              <span className="handle-text">{'⋮⋮ Drag to Resize ⋮⋮'}</span>
+            </div>
+          )}
 
           <div className="terminal-header">
             <div className="terminal-title">
@@ -1633,6 +2120,14 @@ export default function AppFinal() {
               <span>Terminal Output</span>
             </div>
             <div className="terminal-controls">
+              <button 
+                className="term-btn" 
+                onClick={() => setTerminalMaximized(!terminalMaximized)} 
+                title={terminalMaximized ? "Minimize" : "Maximize"}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', width: '28px', height: '24px' }}
+              >
+                {terminalMaximized ? "🗗" : "🗖"}
+              </button>
               <button className="term-btn" onClick={clearTerminal} title="Clear">
                 Clear
               </button>
@@ -1692,59 +2187,602 @@ export default function AppFinal() {
         </div>
       )}
 
-      {/* Mobile Bottom Bar */}
-      {mobileView && (
-        <div className="mobile-bottom-bar">
-          <button
-            className={`bar-btn ${activeTab === 'cpu' ? 'active' : ''}`}
-            onClick={() => setActiveTab('cpu')}
-          >
-            💻
-          </button>
-          <button
-            className={`bar-btn ${activeTab === 'memory' ? 'active' : ''}`}
-            onClick={() => setActiveTab('memory')}
-          >
-            💾
-          </button>
-          <button
-            className={`bar-btn ${activeTab === 'output' ? 'active' : ''}`}
-            onClick={() => setActiveTab('output')}
-          >
-            📊
-          </button>
-          <button
-            className={`bar-btn ${showReference ? 'active' : ''}`}
-            onClick={() => setShowReference(!showReference)}
-          >
-            📚
-          </button>
-          <button
-            className={`bar-btn ${terminalOpen ? 'active' : ''}`}
-            onClick={() => setTerminalOpen(!terminalOpen)}
-          >
-            💻
-          </button>
-        </div>
-      )}
-
-      {/* Mobile Symbol Keyboard */}
-      {mobileView && !showReference && (
-        <div className="mobile-keyboard">
-          <div className="keyboard-grid">
-            {['mov', 'add', 'sub', 'cmp', 'and', 'or', 'xor', 'jmp',
-              'je', 'jne', 'loop', 'call', 'push', 'pop', 'hlt', 'nop'].map(instr => (
+      {/* Custom App-Style Dialog Modal */}
+      {customDialog && (
+        <div className="custom-dialog-overlay" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div className="custom-dialog-card" style={{
+            background: '#161b22',
+            border: '1px solid #30363d',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '400px',
+            padding: '24px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px'
+          }}>
+            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#f0f6fc' }}>
+              {customDialog.title}
+            </h3>
+            <p style={{ margin: 0, fontSize: '14px', color: '#c9d1d9', lineHeight: 1.5 }}>
+              {customDialog.message}
+            </p>
+            {customDialog.type === 'prompt' && (
+              <input
+                type="text"
+                defaultValue={customDialog.defaultValue}
+                id="custom-dialog-input"
+                style={{
+                  background: '#0d1117',
+                  border: '1px solid #30363d',
+                  borderRadius: '6px',
+                  color: '#f0f6fc',
+                  padding: '10px 12px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  width: '100%'
+                }}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    customDialog.onConfirm(e.target.value);
+                  } else if (e.key === 'Escape') {
+                    customDialog.onCancel();
+                  }
+                }}
+              />
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px' }}>
+              {customDialog.type !== 'alert' && (
+                <button
+                  onClick={customDialog.onCancel}
+                  style={{
+                    background: '#21262d',
+                    border: '1px solid #30363d',
+                    color: '#c9d1d9',
+                    borderRadius: '6px',
+                    padding: '0 16px',
+                    height: '44px',
+                    minWidth: '80px',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'background 0.2s'
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
               <button
-                key={instr}
-                className="key-btn"
-                onClick={() => insertInstruction(instr)}
+                onClick={() => {
+                  if (customDialog.type === 'prompt') {
+                    const val = document.getElementById('custom-dialog-input')?.value;
+                    customDialog.onConfirm(val);
+                  } else {
+                    customDialog.onConfirm();
+                  }
+                }}
+                style={{
+                  background: '#238636',
+                  border: '1px solid rgba(240, 246, 252, 0.1)',
+                  color: '#ffffff',
+                  borderRadius: '6px',
+                  padding: '0 20px',
+                  height: '44px',
+                  minWidth: '80px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.2s'
+                }}
               >
-                {instr}
+                {customDialog.type === 'confirm' ? 'Confirm' : 'OK'}
               </button>
-            ))}
+            </div>
           </div>
         </div>
       )}
+
+      {/* Full-Screen Mobile Modal Overlay for panels */}
+      {mobileView && activeMobileModal && (
+        <div className="mobile-fullscreen-modal" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'var(--bg-darkest)',
+          zIndex: 9998,
+          display: 'flex',
+          flexDirection: 'column',
+          overflowY: 'auto'
+        }}>
+          {/* Modal Header */}
+          <div className="modal-fullscreen-header" style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--border)',
+            background: 'var(--bg-panel)'
+          }}>
+            <h2 style={{
+              margin: 0,
+              fontSize: '18px',
+              fontWeight: 'bold',
+              color: 'var(--text-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              {activeMobileModal === 'cpu' && '💻 CPU State'}
+              {activeMobileModal === 'memory' && '🧠 Memory Explorer'}
+              {activeMobileModal === 'output' && '📊 Output Log'}
+              {activeMobileModal === 'reference' && '📚 Instruction Reference'}
+            </h2>
+            <button
+              onClick={() => setActiveMobileModal(null)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-primary)',
+                fontSize: '24px',
+                cursor: 'pointer',
+                padding: '4px 12px',
+                lineHeight: 1
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Modal Content */}
+          <div className="modal-fullscreen-body" style={{
+            flex: 1,
+            padding: '20px',
+            overflowY: 'auto',
+            fontSize: '15px'
+          }}>
+            {activeMobileModal === 'cpu' && (
+              <div className="cpu-details-fullscreen">
+                {/* General Registers */}
+                <div className="registers-group" style={{ marginBottom: '24px' }}>
+                  <h4 style={{ fontSize: '15px', color: 'var(--success)', marginBottom: '12px' }}>📌 General Registers (16-bit)</h4>
+                  <div className="register-grid-fullscreen" style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: '12px'
+                  }}>
+                    {['ax', 'bx', 'cx', 'dx', 'si', 'di', 'bp', 'sp'].map(reg => (
+                      <div key={reg} className="register-item-fullscreen" style={{
+                        background: 'var(--bg-panel)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px'
+                      }}>
+                        <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)' }}>{reg.toUpperCase()}</span>
+                        <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#ffffff' }}>0x{(emulatorState.registers[reg] || 0).toString(16).toUpperCase().padStart(4, '0')}</span>
+                        <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{emulatorState.registers[reg] || 0}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Segment Registers */}
+                <div className="registers-group" style={{ marginBottom: '24px' }}>
+                  <h4 style={{ fontSize: '15px', color: 'var(--success)', marginBottom: '12px' }}>📌 Segment Registers</h4>
+                  <div className="register-grid-fullscreen" style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: '12px'
+                  }}>
+                    {['cs', 'ds', 'ss', 'es'].map(reg => (
+                      <div key={reg} className="register-item-fullscreen" style={{
+                        background: 'var(--bg-panel)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px'
+                      }}>
+                        <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)' }}>{reg.toUpperCase()}</span>
+                        <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#ffffff' }}>0x{(emulatorState.registers[reg] || 0).toString(16).toUpperCase().padStart(4, '0')}</span>
+                        <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{emulatorState.registers[reg] || 0}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Flags */}
+                <div className="flags-group" style={{ marginBottom: '24px' }}>
+                  <h4 style={{ fontSize: '15px', color: 'var(--success)', marginBottom: '12px' }}>🚩 CPU Flags</h4>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: '8px'
+                  }}>
+                    {Object.entries(FLAG_BITS).map(([flag, info]) => (
+                      <div
+                        key={flag}
+                        className={`flag-item ${emulatorState.flags[flag.toLowerCase()] ? 'set' : 'clear'}`}
+                        style={{
+                          background: emulatorState.flags[flag.toLowerCase()] ? 'rgba(63, 185, 80, 0.15)' : 'var(--bg-panel)',
+                          border: emulatorState.flags[flag.toLowerCase()] ? '1px solid var(--success)' : '1px solid var(--border)',
+                          borderRadius: '8px',
+                          padding: '10px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <span style={{ fontSize: '13px', fontWeight: 'bold', color: emulatorState.flags[flag.toLowerCase()] ? 'var(--success)' : 'var(--text-secondary)' }}>{flag}</span>
+                        <span style={{ fontSize: '16px', fontWeight: 'bold' }}>{emulatorState.flags[flag.toLowerCase()] ? '1' : '0'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* IP Pointer */}
+                <div className="ip-group">
+                  <h4 style={{ fontSize: '15px', color: 'var(--success)', marginBottom: '12px' }}>⏩ Instruction Pointer</h4>
+                  <div style={{
+                    background: 'var(--bg-panel)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    padding: '14px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#ffffff' }}>IP: 0x{(emulatorState.ip || 0).toString(16).toUpperCase().padStart(4, '0')}</span>
+                    <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>({emulatorState.ip || 0})</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeMobileModal === 'memory' && (
+              <div className="memory-details-fullscreen">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                  <h4 style={{ margin: 0, fontSize: '15px', color: 'var(--success)' }}>🧠 Memory Dump</h4>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Base:</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. 0x0200"
+                      style={{
+                        background: '#0d1117',
+                        border: '1px solid var(--border)',
+                        color: '#ffffff',
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        width: '90px',
+                        fontSize: '14px'
+                      }}
+                      onChange={(e) => {
+                        const val = e.target.value.trim().toLowerCase();
+                        if (!val) {
+                          setMemoryBaseAddress(0);
+                          return;
+                        }
+                        let num;
+                        if (val.startsWith('0x')) {
+                          num = parseInt(val.slice(2), 16);
+                        } else if (val.endsWith('h')) {
+                          num = parseInt(val.slice(0, -1), 16);
+                        } else {
+                          num = parseInt(val, 10);
+                        }
+                        if (!isNaN(num)) {
+                          setMemoryBaseAddress(Math.max(0, Math.min(65280, num & 0xFFF0)));
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+                
+                <div className="memory-grid-fullscreen" style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                  background: 'var(--bg-panel)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '14px',
+                  overflowX: 'auto'
+                }}>
+                  {Array.from({ length: 16 }).map((_, row) => {
+                    const rowAddr = memoryBaseAddress + row * 16;
+                    return (
+                      <div key={row} style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '4px 0',
+                        borderBottom: '1px solid rgba(255,255,255,0.02)',
+                        minWidth: '380px'
+                      }}>
+                        <span style={{ color: 'var(--text-tertiary)', fontWeight: 'bold', width: '55px' }}>
+                          0x{rowAddr.toString(16).toUpperCase().padStart(4, '0')}:
+                        </span>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(16, 1fr)', gap: '6px', flex: 1 }}>
+                          {Array.from({ length: 16 }).map((_, col) => (
+                            <span key={col} style={{
+                              color: (emulatorState.memory[rowAddr + col] || 0) === 0 ? 'var(--text-tertiary)' : '#ffffff',
+                              textAlign: 'center',
+                              fontWeight: (emulatorState.memory[rowAddr + col] || 0) !== 0 ? 'bold' : 'normal'
+                            }}>
+                              {(emulatorState.memory[rowAddr + col] || 0).toString(16).toUpperCase().padStart(2, '0')}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {activeMobileModal === 'output' && (
+              <div className="output-details-fullscreen" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h4 style={{ margin: 0, fontSize: '15px', color: 'var(--success)' }}>Output Log</h4>
+                  <button className="btn btn-danger btn-small" onClick={clearTerminal}>Clear</button>
+                </div>
+                <div style={{
+                  background: 'var(--bg-panel)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '14px',
+                  color: '#ffffff',
+                  minHeight: '200px',
+                  overflowY: 'auto',
+                  flex: 1
+                }}>
+                  {emulatorState.output.length === 0 ? (
+                    <div style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>▶ Run code to see output...</div>
+                  ) : (
+                    emulatorState.output.map((line, idx) => (
+                      <div key={idx} style={{ padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                        <span style={{ color: 'var(--text-tertiary)', marginRight: '8px' }}>{idx + 1}.</span>
+                        <span>{line}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeMobileModal === 'reference' && (
+              <div className="reference-details-fullscreen">
+                <input
+                  type="text"
+                  placeholder="Search instructions..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    background: '#0d1117',
+                    border: '1px solid var(--border)',
+                    color: '#ffffff',
+                    padding: '10px 16px',
+                    borderRadius: '8px',
+                    width: '100%',
+                    fontSize: '15px',
+                    marginBottom: '16px',
+                    outline: 'none'
+                  }}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {(searchQuery ? searchResults : Object.entries(INSTRUCTION_SET)).slice(0, 30).map(item => {
+                    const name = searchQuery ? item.name : item[0];
+                    const data = searchQuery ? item : item[1];
+                    return (
+                      <div
+                        key={name}
+                        onClick={() => {
+                          insertInstruction(name);
+                          setActiveMobileModal(null);
+                        }}
+                        style={{
+                          background: 'var(--bg-panel)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '8px',
+                          padding: '16px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <div style={{ fontWeight: 'bold', color: 'var(--success)', fontSize: '16px', marginBottom: '4px' }}>{name.toUpperCase()}</div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '8px' }}>{data.description}</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-tertiary)', background: 'rgba(0,0,0,0.2)', padding: '6px 10px', borderRadius: '4px' }}>
+                          Example: {data.examples?.[0] || 'N/A'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Full-Screen Mobile Explorer Modal */}
+      {mobileView && mobileExplorerOpen && (
+        <div className="mobile-fullscreen-modal" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'var(--bg-darkest)',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          overflowY: 'auto'
+        }}>
+          {/* Header */}
+          <div className="modal-fullscreen-header" style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--border)',
+            background: 'var(--bg-panel)'
+          }}>
+            <h2 style={{
+              margin: 0,
+              fontSize: '18px',
+              fontWeight: 'bold',
+              color: 'var(--text-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              📁 Workspace Explorer
+            </h2>
+            <button
+              onClick={() => setMobileExplorerOpen(false)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-primary)',
+                fontSize: '24px',
+                cursor: 'pointer',
+                padding: '4px 12px',
+                lineHeight: 1
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Quick-action utilities */}
+          <div style={{
+            display: 'flex',
+            gap: '12px',
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--border)',
+            background: 'var(--bg-dark)'
+          }}>
+            <button className="btn btn-secondary" onClick={refreshWorkspace} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '12px', fontWeight: '600' }}>
+              🔄 Refresh
+            </button>
+            <button className="btn btn-primary" onClick={triggerCreateFile} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '12px', fontWeight: '600' }}>
+              📄+ New File
+            </button>
+            <button className="btn btn-primary" onClick={triggerCreateFolder} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '12px', fontWeight: '600' }}>
+              📁+ New Folder
+            </button>
+          </div>
+
+          {/* Workspace files list */}
+          <div style={{
+            flex: 1,
+            padding: '20px',
+            overflowY: 'auto'
+          }}>
+            {!workspacePath ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '20px' }}>No folder is opened in workspace.</p>
+                <button className="btn btn-primary" onClick={openWorkspace}>
+                  Open Folder
+                </button>
+              </div>
+            ) : (
+              <div className="explorer-tree" style={{ fontSize: '15px' }}>
+                {isCreatingFolder && (
+                  <div className="tree-folder-group editing" style={{ marginBottom: '8px' }}>
+                    <div className="tree-folder-header" style={{ padding: '8px 12px' }}>
+                      <span className="tree-icon">📁</span>
+                      <input
+                        type="text"
+                        className="inline-explorer-input"
+                        value={newItemName}
+                        onChange={(e) => setNewItemName(e.target.value)}
+                        onKeyDown={(e) => handleInlineInputKeyDown(e, 'folder')}
+                        onBlur={(e) => { const val = e.target.value; setTimeout(() => handleNewFolderSubmit(val), 150); }}
+                        autoFocus
+                        placeholder="New folder..."
+                        style={{
+                          background: '#0d1117',
+                          border: '1px solid var(--border)',
+                          color: '#ffffff',
+                          padding: '6px 10px',
+                          borderRadius: '4px',
+                          width: '100%',
+                          fontSize: '14px',
+                          marginLeft: '8px'
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+                
+                {renderTree(wsFiles)}
+
+                {isCreatingFile && (
+                  <div className="tree-file-item root-file editing" style={{ marginTop: '8px', padding: '8px 12px' }}>
+                    <span className="tree-icon">📄</span>
+                    <input
+                      type="text"
+                      className="inline-explorer-input"
+                      value={newItemName}
+                      onChange={(e) => setNewItemName(e.target.value)}
+                      onKeyDown={(e) => handleInlineInputKeyDown(e, 'file')}
+                      onBlur={(e) => { const val = e.target.value; setTimeout(() => handleNewFileSubmit(val), 150); }}
+                      autoFocus
+                      placeholder="new_file.asm..."
+                      style={{
+                        background: '#0d1117',
+                        border: '1px solid var(--border)',
+                        color: '#ffffff',
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        width: '100%',
+                        fontSize: '14px',
+                        marginLeft: '8px'
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
     </>
   );

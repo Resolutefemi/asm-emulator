@@ -261,7 +261,7 @@ end:
           <button className="mobile-menu-btn" onClick={toggleMobileMenu}>
             ☰
           </button>
-          <h1 className="app-title">⚙️ Renance Playground</h1>
+          <h1 className="app-title"><img src="/icon.png" alt="logo" style={{width: '24px', height: '24px', verticalAlign: 'middle', marginRight: '8px'}} />Renance Playground</h1>
           <span className="subtitle">8086 ASM Emulator</span>
         </div>
         

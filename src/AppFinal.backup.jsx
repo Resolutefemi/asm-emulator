@@ -807,7 +807,7 @@ export default function AppFinal() {
       <header className="header-final">
         <div className="header-brand">
           <div className="brand-title-group">
-            <h1>{mobileView ? '⚙️ Renance' : '⚙️ Renance Playground'}</h1>
+            <h1>{mobileView ? <><img src="/icon.png" alt="logo" style={{width: '24px', height: '24px', verticalAlign: 'middle', marginRight: '8px'}} />Renance</> : <><img src="/icon.png" alt="logo" style={{width: '24px', height: '24px', verticalAlign: 'middle', marginRight: '8px'}} />Renance Playground</>}</h1>
             <span className="by-resolute-femi">by Resolute Femi</span>
           </div>
           {!mobileView && <span className="badge">8086 Full ISA</span>}
