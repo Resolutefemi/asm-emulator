@@ -1916,6 +1916,12 @@ export default function AppFinal() {
               >
                 📊 Output
               </button>
+              <button
+                className={`tab ${showReference ? 'active' : ''}`}
+                onClick={() => setShowReference(!showReference)}
+              >
+                📚 Instruction Reference
+              </button>
             </div>
 
             <div className="cpu-content">
@@ -2053,7 +2059,29 @@ export default function AppFinal() {
           {showReference && (
             <div className="reference-panel">
               <div className="ref-header">
-                <h3>📚 Instruction Reference</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '8px' }}>
+                  <h3 style={{ margin: 0 }}>📚 Instruction Reference</h3>
+                  <button 
+                    onClick={() => setShowReference(false)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-secondary)',
+                      fontSize: '18px',
+                      cursor: 'pointer',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    onMouseOver={(e) => { e.target.style.background = 'var(--bg-hover)'; e.target.style.color = 'var(--text-primary)'; }}
+                    onMouseOut={(e) => { e.target.style.background = 'transparent'; e.target.style.color = 'var(--text-secondary)'; }}
+                    title="Close Panel"
+                  >
+                    ✕
+                  </button>
+                </div>
                 <input
                   type="text"
                   placeholder="Search instructions..."
