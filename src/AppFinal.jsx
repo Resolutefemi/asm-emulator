@@ -225,7 +225,7 @@ export default function AppFinal() {
   const [showReference, setShowReference] = useState(window.innerWidth > 1024);
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileView, setMobileView] = useState(window.innerWidth < 768);
-  const [terminalOpen, setTerminalOpen] = useState(true); // Open terminal by default
+  const [terminalOpen, setTerminalOpen] = useState(false); // Closed by default
   const [terminalHeight, setTerminalHeight] = useState(250);
   const [isDragging, setIsDragging] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
