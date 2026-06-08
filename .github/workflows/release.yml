@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-release:
+  build-desktop:
     permissions:
       contents: write
     strategy:
@@ -54,3 +54,47 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  build-android:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Frontend Dependencies
+        run: npm install
+
+      - name: Build Android APK
+        run: npx tauri android build --apk
+
+      - name: Upload APK to GitHub Release Draft
+        uses: softprops/action-gh-release@v1
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: app-v0.1.0
+          name: "RenASM v0.1.0"
+          draft: true
+          files: |
+            src-tauri/gen/android/app/build/outputs/apk/release/*.apk
