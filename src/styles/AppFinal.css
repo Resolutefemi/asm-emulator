@@ -1146,7 +1146,7 @@ html, body, #root {
     grid-template-columns: repeat(3, 1fr);
   }
 
-  .terminal-container {
+  .terminal-container:not(.maximized) {
     position: fixed;
     bottom: 0 !important;
     left: 0;
@@ -1157,7 +1157,7 @@ html, body, #root {
     z-index: 999;
   }
 
-  .mobile-terminal {
+  .mobile-terminal:not(.maximized) {
     height: 200px !important;
     min-height: unset !important;
   }
