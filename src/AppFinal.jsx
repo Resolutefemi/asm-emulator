@@ -1758,11 +1758,6 @@ export default function AppFinal() {
                 {mobileView ? '▶' : '▶ Run'}
               </button>
               {mobileView && (
-                <button className={`btn btn-primary btn-save-mobile ${isDirty ? 'pulse' : ''}`} onClick={handleSave} title="Save File">
-                  💾
-                </button>
-              )}
-              {mobileView && (
                 <div className="right-menu-container" ref={rightMenuRef} style={{ position: 'relative' }}>
                   <button className="btn btn-secondary right-menu-btn" onClick={() => setRightMenuOpen(!rightMenuOpen)}>
                     ⚙ Panels ▾
@@ -1863,9 +1858,14 @@ export default function AppFinal() {
                   )}
                 </div>
               )}
-              {!mobileView && (
-                <span className="auto-save-indicator" title="Auto-saving is active">💾 Auto-saving...</span>
-              )}
+              <span 
+                className="auto-save-indicator" 
+                title={mobileView ? "Save File" : "Auto-saving is active"}
+                onClick={mobileView ? handleSave : undefined}
+                style={{ cursor: mobileView ? 'pointer' : 'default' }}
+              >
+                💾{!mobileView && ' Auto-saving...'}
+              </span>
             </div>
           </div>
 
