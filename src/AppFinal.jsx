@@ -226,7 +226,7 @@ export default function AppFinal() {
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileView, setMobileView] = useState(window.innerWidth < 768);
   const [terminalOpen, setTerminalOpen] = useState(false); // Closed by default
-  const [terminalHeight, setTerminalHeight] = useState(250);
+  const [terminalHeight, setTerminalHeight] = useState(window.innerWidth < 768 ? 200 : 250);
   const [isDragging, setIsDragging] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mobileMenuRef = useRef(null);
@@ -2131,7 +2131,7 @@ export default function AppFinal() {
       {terminalOpen && (
         <div
           className={`terminal-container ${mobileView ? 'mobile-terminal' : 'desktop-terminal'} ${terminalMaximized ? 'maximized' : ''}`}
-          style={(!mobileView && !terminalMaximized) ? { height: `${terminalHeight}px` } : {}}
+          style={!terminalMaximized ? { height: `${terminalHeight}px` } : {}}
           ref={terminalRef}
         >
           {!terminalMaximized && (

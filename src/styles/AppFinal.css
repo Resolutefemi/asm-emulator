@@ -1153,33 +1153,25 @@ html, body, #root {
     right: 0;
     width: 100%;
     min-height: unset !important;
-    max-height: 40vh !important;
+    max-height: 80vh !important;
     z-index: 999;
   }
 
   .mobile-terminal:not(.maximized) {
-    height: 200px !important;
     min-height: unset !important;
-  }
-
-  .mobile-terminal .terminal-handle {
-    display: none !important;
-    height: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
   }
 
   .mobile-terminal .terminal-body {
     display: flex !important;
     flex-direction: column !important;
     height: auto !important;
-    max-height: calc(100% - 40px) !important;
     min-height: unset !important;
     padding: 16px !important;
     padding-bottom: 16px !important;
     font-size: 13px !important;
     line-height: 1.6 !important;
     overflow-y: auto !important;
+    flex: 1 !important;
   }
 
   .mobile-terminal .terminal-body,
