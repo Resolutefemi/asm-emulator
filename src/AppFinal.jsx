@@ -12,6 +12,7 @@ import WorkspaceExplorer from './components/WorkspaceExplorer';
 import TemplateBrowser from './components/TemplateBrowser';
 import './styles/AppFinal.css';
 import './styles/ActivityBar.css';
+import { useAppUpdater } from './hooks/useAppUpdater';
 
 const SAMPLE_PROJECTS = [
   {
@@ -208,6 +209,15 @@ const asmHighlightPlugin = ViewPlugin.fromClass(class {
 });
 
 export default function AppFinal() {
+  const {
+    updateStatus,
+    updateInfo,
+    errorMessage,
+    checkForUpdates,
+    installPendingUpdate,
+    resetUpdater
+  } = useAppUpdater();
+
   const [showSplash, setShowSplash] = useState(true);
   const [workspacePath, setWorkspacePath] = useState(null);
   const [code, setCode] = useState(`; Renance Playground - Default Assembly Code\nmov ax, 0x1234\nadd ax, 0x5678\nhlt\n`);
@@ -1754,6 +1764,16 @@ export default function AppFinal() {
                   📁
                 </button>
               )}
+              {!mobileView && (
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => checkForUpdates(true)} 
+                  title="Check for Updates"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px 10px', fontSize: '13px', fontWeight: '600' }}
+                >
+                  🚀
+                </button>
+              )}
               <button className="btn btn-success btn-run-top" onClick={runCode} title="Run Program (F5)">
                 {mobileView ? '▶' : '▶ Run'}
               </button>
@@ -1853,6 +1873,26 @@ export default function AppFinal() {
                       onMouseOver={(e) => { e.target.style.background = 'var(--bg-hover)'; e.target.style.color = 'var(--text-primary)'; }}
                       onMouseOut={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-secondary)'; }}>
                         📚 Instruction Reference
+                      </button>
+                      <button className="right-menu-item" style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-secondary)',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        borderTop: '1px solid var(--border)'
+                      }} onClick={() => { checkForUpdates(true); setRightMenuOpen(false); }}
+                      onMouseOver={(e) => { e.target.style.background = 'var(--bg-hover)'; e.target.style.color = 'var(--text-primary)'; }}
+                      onMouseOut={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-secondary)'; }}>
+                        🚀 Check for Updates
                       </button>
                     </div>
                   )}
@@ -2329,6 +2369,149 @@ export default function AppFinal() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Premium System Update Modal */}
+      {(updateStatus === 'available' || updateStatus === 'downloading' || updateStatus === 'error') && (
+        <div className="update-modal-overlay" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(5, 5, 10, 0.85)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '16px',
+          fontFamily: 'system-ui, -apple-system, sans-serif'
+        }}>
+          <div className="update-modal-card" style={{
+            background: 'linear-gradient(135deg, #161b22 0%, #0d1117 100%)',
+            border: '1px solid rgba(56, 139, 253, 0.4)',
+            borderRadius: '16px',
+            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 139, 253, 0.1)',
+            width: '100%',
+            maxWidth: '440px',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            animation: 'fadeIn 0.3s ease'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '24px 24px 16px',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <span style={{ fontSize: '24px' }}>🚀</span>
+              <div>
+                <h3 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '18px', fontWeight: '700', letterSpacing: '-0.01em' }}>
+                  System Update Available
+                </h3>
+                <p style={{ margin: '4px 0 0', color: 'var(--text-tertiary)', fontSize: '12px' }}>
+                  New version <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>v{updateInfo?.version}</span> is ready
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div style={{ padding: '20px 24px', flex: 1 }}>
+              {updateStatus === 'downloading' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 0', gap: '16px' }}>
+                  <div className="update-loader" style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '50%',
+                    border: '3px solid rgba(56, 139, 253, 0.1)',
+                    borderTopColor: 'var(--primary)',
+                    animation: 'spin 1s linear infinite'
+                  }} />
+                  <div style={{ textAlign: 'center' }}>
+                    <p style={{ margin: 0, color: 'var(--text-primary)', fontWeight: '600', fontSize: '14px' }}>
+                      {updateInfo?.platform === 'android' ? 'Downloading APK Package...' : 'Downloading Update...'}
+                    </p>
+                    <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: '12px' }}>
+                      Please wait while the download completes
+                    </p>
+                  </div>
+                </div>
+              ) : updateStatus === 'error' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ff7b72', fontWeight: 'bold', fontSize: '14px' }}>
+                    <span>⚠️</span> Update Failed
+                  </div>
+                  <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.5, background: 'rgba(255, 123, 114, 0.05)', padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(255, 123, 114, 0.15)' }}>
+                    {errorMessage}
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '13px', fontWeight: '600' }}>
+                    What's New in this Version:
+                  </p>
+                  <div style={{
+                    maxHeight: '140px',
+                    overflowY: 'auto',
+                    background: 'rgba(0, 0, 0, 0.2)',
+                    border: '1px solid rgba(255, 255, 255, 0.03)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    fontSize: '13px',
+                    color: 'var(--text-secondary)',
+                    lineHeight: '1.6',
+                    whiteSpace: 'pre-wrap'
+                  }}>
+                    {updateInfo?.notes}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{
+              padding: '16px 24px 24px',
+              borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '12px'
+            }}>
+              {updateStatus === 'error' ? (
+                <>
+                  <button className="btn btn-secondary" onClick={resetUpdater} style={{ padding: '8px 16px', fontSize: '13px', fontWeight: '600' }}>
+                    Close
+                  </button>
+                  <button className="btn btn-primary" onClick={installPendingUpdate} style={{ padding: '8px 16px', fontSize: '13px', fontWeight: '600' }}>
+                    Retry Update
+                  </button>
+                </>
+              ) : updateStatus === 'downloading' ? (
+                <button className="btn btn-secondary" disabled style={{ padding: '8px 16px', fontSize: '13px', fontWeight: '600', opacity: 0.5 }}>
+                  Installing...
+                </button>
+              ) : (
+                <>
+                  <button className="btn btn-secondary" onClick={resetUpdater} style={{ padding: '8px 16px', fontSize: '13px', fontWeight: '600' }}>
+                    Later
+                  </button>
+                  <button className="btn btn-primary" onClick={installPendingUpdate} style={{ padding: '8px 16px', fontSize: '13px', fontWeight: '600' }}>
+                    Update Now
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          {/* Spinner Keyframe Style Injection */}
+          <style>{`
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+          `}</style>
         </div>
       )}
 
