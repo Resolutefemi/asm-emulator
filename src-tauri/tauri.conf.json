@@ -13,14 +13,6 @@
     "allowlist": {
       "all": true
     },
-    "updater": {
-      "active": true,
-      "dialog": false,
-      "pubkey": "YOUR_UPDATER_PUBLIC_KEY_HERE",
-      "endpoints": [
-        "https://example.com/update/{{target}}/{{current_version}}"
-      ]
-    },
     "bundle": {
       "active": true,
       "targets": ["msi", "nsis"],
