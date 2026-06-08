@@ -1658,7 +1658,7 @@ export default function AppFinal() {
           <div className="panel-header">
             <div className="panel-header-left" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                📝 Code Editor {activeFile ? `(${activeFile.split('/').pop()})` : '(Untitled.asm)'}
+                📝 {activeFile ? activeFile.split('/').pop() : 'Untitled.asm'}
                 <div className="samples-dropdown-container" ref={samplesMenuRef} style={{ position: 'relative', display: 'inline-block' }}>
                   <button 
                     onClick={(e) => {
@@ -1755,11 +1755,11 @@ export default function AppFinal() {
                 </button>
               )}
               <button className="btn btn-success btn-run-top" onClick={runCode} title="Run Program (F5)">
-                ▶ Run
+                {mobileView ? '▶' : '▶ Run'}
               </button>
               {mobileView && (
                 <button className={`btn btn-primary btn-save-mobile ${isDirty ? 'pulse' : ''}`} onClick={handleSave} title="Save File">
-                  💾 Save
+                  💾
                 </button>
               )}
               {mobileView && (
