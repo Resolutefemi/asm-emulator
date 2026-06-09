@@ -56,15 +56,16 @@ export function useAppUpdater() {
         }
       } else {
         // Desktop: listen to native Tauri updater silently
-        const { checkUpdate } = window.__TAURI__.updater;
-        const result = await checkUpdate();
+        const { check } = window.__TAURI__.updater;
+        const update = await check();
         
-        if (result.shouldUpdate) {
+        if (update) {
           setUpdateInfo({
-            version: result.manifest.version,
-            notes: result.manifest.body || 'A new update is available for Desktop.',
+            version: update.version,
+            notes: update.body || 'A new update is available for Desktop.',
             url: null, // Managed internally by Tauri
-            platform: 'desktop'
+            platform: 'desktop',
+            updateObj: update
           });
           setUpdateStatus('available');
         } else {
@@ -91,12 +92,13 @@ export function useAppUpdater() {
         setUpdateStatus('idle'); // The Android package installer prompt takes over the screen
       } else {
         // Desktop native installer process
-        const { installUpdate } = window.__TAURI__.updater;
-        await installUpdate();
-        
-        // Relaunch Tauri application
-        const { relaunch } = window.__TAURI__.process;
-        await relaunch();
+        if (updateInfo && updateInfo.updateObj) {
+          await updateInfo.updateObj.downloadAndInstall();
+          
+          // Relaunch Tauri application
+          const { relaunch } = window.__TAURI__.process;
+          await relaunch();
+        }
       }
     } catch (err) {
       console.error('Installation failed:', err);

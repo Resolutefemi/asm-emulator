@@ -73,10 +73,6 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
-      # Use updated Tauri CLI (beta) that includes Android support
-      - name: Install Tauri CLI (beta for Android)
-        run: npm install @tauri-apps/cli@^2.0.0-beta --save-dev
-
       # Build and Release (Tauri Action)
       - name: Build and Release (Tauri Action)
         uses: tauri-apps/tauri-action@v0
@@ -129,9 +125,6 @@ jobs:
           sdkmanager --install "ndk;25.2.9519653"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
           echo "NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
-
-      - name: Install Tauri CLI (beta for Android)
-        run: npm install @tauri-apps/cli@^2.0.0-beta --save-dev
 
       - name: Install Frontend Dependencies
         run: npm ci
