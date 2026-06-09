@@ -8,7 +8,13 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:android": "tauri android build --apk",
+    "tauri:build:android:aab": "tauri android build",
+    "tauri:build:linux": "tauri build --target x86_64-unknown-linux-gnu",
+    "tauri:build:macos": "tauri build --target universal-apple-darwin",
+    "tauri:android:dev": "tauri android dev",
+    "tauri:android:init": "tauri android init"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.0",
