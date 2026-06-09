@@ -42,13 +42,18 @@ jobs:
         with:
           node-version: 20
 
-      # Install Rust with optional extra targets (needed for macOS universal)
+      # Install Rust stable with optional extra targets (needed for macOS universal & Android)
       - name: Install Rust Stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.rust_targets }}
+          targets: ${{ matrix.rust_targets || '' }}
 
-      # ── Linux system dependencies (Tauri v1 / WebKit2GTK 4.0) ──────────────
+      # Clear any stray Windows paths that confuse Linux/macOS linkers
+      - name: Unset Windows cargo target dir (if present)
+        run: |
+          unset CARGO_TARGET_DIR || true
+
+      # Install Linux system dependencies (Tauri v1 / WebKit2GTK 4.0)
       - name: Install Linux Build Dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -68,7 +73,11 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
-      # tauri-action@v0 is the correct version for Tauri v1
+      # Use updated Tauri CLI (beta) that includes Android support
+      - name: Install Tauri CLI (beta for Android)
+        run: npm install @tauri-apps/cli@^2.0.0-beta --save-dev
+
+      # Build and Release (Tauri Action)
       - name: Build and Release (Tauri Action)
         uses: tauri-apps/tauri-action@v0
         env:
