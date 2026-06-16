@@ -42,7 +42,7 @@
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.4.0",
-    "@forkprince/electron-forge-maker-appimage": "^3.0.1",
+
     "@electron-forge/maker-deb": "^7.4.0",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/cli": "^2.11.2",
@@ -62,10 +62,6 @@
       "makers": [
         {
           "name": "@electron-forge/maker-deb",
-          "config": {}
-        },
-        {
-          "name": "@forkprince/electron-forge-maker-appimage",
           "config": {}
         }
       ]

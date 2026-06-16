@@ -13,6 +13,20 @@ export const INSTRUCTION_SET = {
     examples: ['mov ax, bx', 'mov ax, 100', 'mov [si], ax'],
     flags: 'none'
   },
+  'in': {
+    opcode: ['E4 ib', 'E5 ib', 'EC', 'ED'],
+    operands: ['dest, port'],
+    description: 'Input byte or word from hardware port',
+    examples: ['in al, 0Bh', 'in ax, dx'],
+    flags: 'none'
+  },
+  'out': {
+    opcode: ['E6 ib', 'E7 ib', 'EE', 'EF'],
+    operands: ['port, src'],
+    description: 'Output byte or word to hardware port',
+    examples: ['out 09h, al', 'out dx, ax'],
+    flags: 'none'
+  },
   'movsx': {
     opcode: ['0F BE /r', '0F BF /r'],
     operands: ['dest, src'],

@@ -36,6 +36,8 @@ export class Emulator8086 {
     this.code = [];
     this.output = [];
     this.symbolTable = { '@data': 0 };
+    this.symbolSizes = {};
+    this.ports = {};
   }
 
   load(asmCode) {
@@ -114,12 +116,13 @@ export class Emulator8086 {
         const directive = dataMatch[2].toLowerCase();
         const valueStr = dataMatch[3];
 
-        if (labelName) {
-          this.symbolTable[labelName] = currentOffset;
-        }
-
         const values = parseDataValues(valueStr);
         const elementSize = directive === 'db' ? 1 : directive === 'dw' ? 2 : 4;
+
+        if (labelName) {
+          this.symbolTable[labelName] = currentOffset;
+          this.symbolSizes[labelName] = elementSize;
+        }
 
         for (const val of values) {
           if (typeof val === 'string') {
@@ -377,7 +380,7 @@ export class Emulator8086 {
         this.mul(args[0]);
         break;
       case 'imul':
-        this.imul(args[0], args[1]);
+        this.imul(args[0], args[1], args[2]);
         break;
       case 'div':
         this.div(args[0]);
@@ -424,6 +427,12 @@ export class Emulator8086 {
         break;
       case 'pop':
         this.pop(args[0]);
+        break;
+      case 'in':
+        this.in(args[0], args[1]);
+        break;
+      case 'out':
+        this.out(args[0], args[1]);
         break;
       case 'int':
         this.interrupt(this.getValue(args[0]));
@@ -617,10 +626,17 @@ export class Emulator8086 {
     this.output.push(`sbb ${dest}, ${src} → ${dest} = 0x${result.toString(16).toUpperCase()}`);
   }
 
+  checkIsByte(src) {
+    const operandLower = src.trim().toLowerCase();
+    return ['al','ah','bl','bh','cl','ch','dl','dh'].includes(operandLower) ||
+           operandLower.includes('byte') ||
+           (this.symbolSizes && this.symbolSizes[operandLower] === 1);
+  }
+
   mul(src) {
     // 8-bit: AX = AL * src (byte); 16-bit: DX:AX = AX * src (word)
     const srcVal = this.getValue(src);
-    const isByte = ['al','ah','bl','bh','cl','ch','dl','dh'].includes(src.trim().toLowerCase());
+    const isByte = this.checkIsByte(src);
     if (isByte) {
       const al = this.registers.ax & 0xFF;
       const result = al * (srcVal & 0xFF);
@@ -637,10 +653,20 @@ export class Emulator8086 {
     }
   }
 
-  imul(src, src2) {
+  imul(src, src2, src3) {
     // 1-operand: AX = AL * src (signed byte) or DX:AX = AX * src (signed word)
     // 2-operand: dest = dest * src2 (dest is src, src2 is immediate/register)
-    if (src2 !== undefined) {
+    // 3-operand: dest = src2 * src3 (dest is src, src2 is src/register/memory, src3 is immediate)
+    if (src3 !== undefined) {
+      // 3-operand form: imul dest, src, imm  (dest = src * imm)
+      const srcVal = this.toSigned16(this.getValue(src2));
+      const immVal = this.toSigned16(this.getValue(src3));
+      const result = (srcVal * immVal) & 0xFFFF;
+      this.setValue(src, result);
+      const fullResult = srcVal * immVal;
+      this.flags.cf = this.flags.of = (fullResult < -32768 || fullResult > 32767) ? 1 : 0;
+      this.output.push(`imul ${src}, ${src2}, ${src3} → ${src} = 0x${result.toString(16).toUpperCase()}`);
+    } else if (src2 !== undefined) {
       // 2-operand form: imul dest, src  (dest *= src)
       const destVal = this.toSigned16(this.getValue(src));
       const srcVal = this.toSigned16(this.getValue(src2));
@@ -652,7 +678,7 @@ export class Emulator8086 {
     } else {
       // 1-operand form
       const srcVal = this.getValue(src);
-      const isByte = ['al','ah','bl','bh','cl','ch','dl','dh'].includes(src.trim().toLowerCase());
+      const isByte = this.checkIsByte(src);
       if (isByte) {
         const al = this.toSigned8(this.registers.ax & 0xFF);
         const multiplier = this.toSigned8(srcVal & 0xFF);
@@ -675,7 +701,7 @@ export class Emulator8086 {
   div(src) {
     const srcVal = this.getValue(src);
     if (srcVal === 0) throw new Error('Division by zero');
-    const isByte = ['al','ah','bl','bh','cl','ch','dl','dh'].includes(src.trim().toLowerCase());
+    const isByte = this.checkIsByte(src);
     if (isByte) {
       const ax = this.registers.ax;
       const quotient = Math.floor(ax / srcVal);
@@ -684,7 +710,7 @@ export class Emulator8086 {
       this.registers.ax = ((remainder & 0xFF) << 8) | (quotient & 0xFF); // AH=remainder, AL=quotient
       this.output.push(`div ${src} → AL = 0x${(quotient & 0xFF).toString(16).toUpperCase()}, AH = 0x${(remainder & 0xFF).toString(16).toUpperCase()}`);
     } else {
-      const dxax = ((this.registers.dx & 0xFFFF) << 16) | (this.registers.ax & 0xFFFF);
+      const dxax = ((this.registers.dx & 0xFFFF) * 65536) + (this.registers.ax & 0xFFFF);
       const quotient = Math.floor(dxax / srcVal);
       const remainder = dxax % srcVal;
       if (quotient > 0xFFFF) throw new Error('Division overflow');
@@ -697,7 +723,7 @@ export class Emulator8086 {
   idiv(src) {
     const srcVal = this.getValue(src);
     if (srcVal === 0) throw new Error('Division by zero');
-    const isByte = ['al','ah','bl','bh','cl','ch','dl','dh'].includes(src.trim().toLowerCase());
+    const isByte = this.checkIsByte(src);
     if (isByte) {
       const ax = this.toSigned16(this.registers.ax);
       const divisor = this.toSigned8(srcVal & 0xFF);
@@ -707,7 +733,7 @@ export class Emulator8086 {
       this.registers.ax = ((remainder & 0xFF) << 8) | (quotient & 0xFF);
       this.output.push(`idiv ${src} → AL = ${quotient}, AH = ${remainder}`);
     } else {
-      const dxax = this.toSigned32(((this.registers.dx & 0xFFFF) * 0x10000) | (this.registers.ax & 0xFFFF));
+      const dxax = this.toSigned32(((this.registers.dx & 0xFFFF) * 65536) + (this.registers.ax & 0xFFFF));
       const divisor = this.toSigned16(srcVal);
       const quotient = Math.trunc(dxax / divisor);
       const remainder = dxax % divisor;
@@ -898,6 +924,23 @@ export class Emulator8086 {
     this.registers.sp = (this.registers.sp + 2) & 0xFFFF;
     this.setValue(dest, value);
     this.output.push(`pop ${dest} → ${dest} = 0x${value.toString(16).toUpperCase()}`);
+  }
+
+  in(dest, portSrc) {
+    const port = this.getValue(portSrc);
+    const val = (this.ports[port] !== undefined) ? this.ports[port] : 0;
+    this.setValue(dest, val);
+    this.output.push(`in ${dest}, ${portSrc} (port 0x${port.toString(16).toUpperCase()}) → ${dest} = 0x${val.toString(16).toUpperCase()}`);
+  }
+
+  out(portDest, src) {
+    const port = this.getValue(portDest);
+    const val = this.getValue(src);
+    this.ports[port] = val;
+    this.output.push(`out ${portDest} (port 0x${port.toString(16).toUpperCase()}), ${src} → port = 0x${val.toString(16).toUpperCase()}`);
+    if (this.onPortWrite) {
+      this.onPortWrite(port, val);
+    }
   }
 
   jmp(label) {

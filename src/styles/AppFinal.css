@@ -355,7 +355,7 @@ html, body, #root {
   background: var(--bg-dark) !important;
   color: var(--text-primary) !important;
   font-family: var(--font-mono) !important;
-  font-size: 13px !important;
+  font-size: var(--editor-font-size, 13px) !important;
 }
 
 .cm-gutters {
@@ -1823,18 +1823,263 @@ html, body, #root {
   z-index: 9997 !important;
 }
 
-/* Responsive sidebar removal & custom overlay dataDump styling */
+/* ============================================================
+   MOBILE RESPONSIVE OVERHAUL  – all breakpoints consolidated
+   ============================================================ */
+
+/* ── Hide desktop right-panel on mobile ── */
 @media (max-width: 768px) {
   .right-section {
     display: none !important;
   }
-  
+
   .terminal-body {
     font-size: 13px;
     line-height: 1.6;
     color: #ffffff;
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
   }
+
+  /* ── App shell ── */
+  .app-final {
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  .header-final {
+    padding: 8px 12px;
+    min-height: 48px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .header-brand h1 {
+    font-size: 15px;
+  }
+  .header-controls {
+    gap: 4px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .btn {
+    padding: 6px 10px;
+    font-size: 11px;
+    white-space: nowrap;
+    min-height: 36px;         /* comfortable touch target */
+  }
+
+  /* ── Editor takes full remaining height ── */
+  .editor-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  /* ── Mobile bottom bar ── */
+  .mobile-bottom-bar {
+    display: grid !important;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    padding: 6px 8px;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    safe-area-inset-bottom: env(safe-area-inset-bottom, 0);
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+  }
+  .bar-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 6px 4px;
+    font-size: 18px;
+    min-height: 48px;
+    border-radius: 8px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .bar-btn span {
+    font-size: 9px;
+    letter-spacing: 0.3px;
+    color: inherit;
+    font-weight: 600;
+  }
+  .bar-btn.active {
+    background: rgba(63, 185, 80, 0.15);
+    border-color: var(--success);
+    color: var(--success);
+  }
+  .bar-btn:active {
+    transform: scale(0.94);
+  }
+
+  /* ── Mobile keyboard ── */
+  .mobile-keyboard {
+    display: block !important;
+    position: fixed;
+    bottom: calc(48px + env(safe-area-inset-bottom, 0px) + 12px);
+    left: 0;
+    right: 0;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    padding: 6px 8px;
+    z-index: 99;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .mobile-keyboard::-webkit-scrollbar { display: none; }
+  .keyboard-grid {
+    display: flex;
+    gap: 6px;
+    min-width: max-content;
+  }
+  .key-btn {
+    padding: 8px 12px;
+    font-size: 12px;
+    border-radius: 6px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    touch-action: manipulation;
+    min-height: 40px;
+  }
+  .key-btn:active {
+    background: var(--primary);
+    color: var(--bg-darkest);
+    border-color: var(--primary);
+    transform: scale(0.93);
+  }
+
+  /* ── Fullscreen modal ── */
+  .mobile-fullscreen-modal {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;   /* dynamic viewport height for iOS */
+    background: var(--bg-darkest) !important;
+    z-index: 9998 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+  }
+  .modal-fullscreen-header {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-fullscreen-header h2 {
+    font-size: 16px !important;
+    margin: 0 !important;
+  }
+  .modal-fullscreen-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Register grid in fullscreen modal ── */
+  .register-grid-fullscreen {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+  .register-item-fullscreen {
+    padding: 10px !important;
+  }
+
+  /* ── Memory dump in fullscreen modal – fix overflow ── */
+  .memory-grid-fullscreen {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Reduce columns to 8 on narrow screens */
+  .memory-row-inner {
+    grid-template-columns: repeat(8, 1fr) !important;
+    gap: 4px !important;
+    font-size: 12px !important;
+  }
+
+  /* ── DebuggerWidget inside modal ── */
+  .debugger-details-fullscreen {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .glass-debugger-widget {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* ── No-scrollbar utility (tab strip) ── */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+
+  /* ── CodeMirror on mobile ── */
+  .cm-editor {
+    font-size: 13px !important;
+  }
+  .cm-gutters {
+    min-width: 36px !important;
+  }
+
+  /* ── Content area – push up for fixed bars ── */
+  .main-content {
+    padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ── Small Mobile < 480px ── */
+@media (max-width: 480px) {
+  .header-brand h1 { font-size: 13px; }
+  .badge { display: none; }
+  .btn { padding: 5px 8px; font-size: 10px; }
+
+  .mobile-bottom-bar {
+    grid-template-columns: repeat(5, 1fr);
+  }
+  .bar-btn { min-height: 44px; font-size: 16px; }
+
+  .modal-fullscreen-header { padding: 12px 14px; }
+  .modal-fullscreen-body  { padding: 12px; }
+
+  .cm-editor { font-size: 12px !important; }
+
+  .register-grid-fullscreen {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+}
+
+/* ── Ultra-small < 360px ── */
+@media (max-width: 360px) {
+  .header-brand h1 { font-size: 11px; }
+  .btn { padding: 4px 6px; font-size: 9px; }
+
+  .bar-btn { font-size: 14px; min-height: 40px; }
+  .bar-btn span { font-size: 8px; }
+
+  .modal-fullscreen-header h2 { font-size: 14px !important; }
+  .modal-fullscreen-body { padding: 10px; }
+
+  .cm-editor { font-size: 11px !important; }
 }
 
 

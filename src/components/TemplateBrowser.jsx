@@ -188,6 +188,194 @@ int 0x21
 hlt
 `,
   },
+  {
+    id: 'traffic-light',
+    name: 'Traffic Light Controller',
+    description: 'Cycles N-S and E-W traffic lights on Ports 12 & 13',
+    category: 'Hardware I/O',
+    code: `; Traffic Light Controller
+; Controls N-S and E-W traffic lights via OUT instructions
+; Port 12 (0Ch) controls N-S lights: 1=Red, 2=Yellow, 4=Green
+; Port 13 (0Dh) controls E-W lights: 1=Red, 2=Yellow, 4=Green
+
+mov cx, 5          ; Cycle 5 times
+cycle_loop:
+  ; State 1: N-S Green (4), E-W Red (1)
+  mov al, 4
+  out 12, al
+  mov al, 1
+  out 13, al
+  call delay
+  
+  ; State 2: N-S Yellow (2), E-W Red (1)
+  mov al, 2
+  out 12, al
+  call delay
+  
+  ; State 3: N-S Red (1), E-W Green (4)
+  mov al, 1
+  out 12, al
+  mov al, 4
+  out 13, al
+  call delay
+  
+  ; State 4: N-S Red (1), E-W Yellow (2)
+  mov al, 2
+  out 13, al
+  call delay
+  
+  dec cx
+  jnz cycle_loop
+  
+; All Red and Halt
+mov al, 1
+out 12, al
+out 13, al
+hlt
+
+delay:
+  mov dx, 0x7FFF
+delay_inner:
+  dec dx
+  jnz delay_inner
+  ret
+`,
+  },
+  {
+    id: 'hardware-calc',
+    name: 'Hardware Calculator',
+    description: 'Arithmetic controller on Ports 14, 15, 16, and 18',
+    category: 'Hardware I/O',
+    code: `; Hardware Calculator Controller
+; Port 14: Operand A
+; Port 15: Operand B
+; Port 16: Operator (1=+, 2=-, 3=*, 4=/)
+; Port 18: Result Output
+
+wait_op:
+  in al, 16        ; Read operator
+  cmp al, 0        ; Is it idle?
+  jz wait_op       ; Loop if no operator
+  
+  mov cl, al       ; Save operator code
+  in al, 14        ; Read Operand A
+  mov ah, al       ; AH = Operand A
+  in al, 15        ; AL = Operand B
+  
+  cmp cl, 1        ; Add?
+  jz op_add
+  cmp cl, 2        ; Sub?
+  jz op_sub
+  cmp cl, 3        ; Mul?
+  jz op_mul
+  cmp cl, 4        ; Div?
+  jz op_div
+  jmp done
+  
+op_add:
+  add ah, al
+  mov al, ah
+  jmp write_res
+  
+op_sub:
+  sub ah, al
+  mov al, ah
+  jmp write_res
+  
+op_mul:
+  ; Multiply AH by AL via loop
+  mov dl, al
+  mov al, 0
+mul_loop:
+  cmp dl, 0
+  jz write_res
+  add al, ah
+  dec dl
+  jmp mul_loop
+  
+op_div:
+  ; Divide AH by AL via loop
+  cmp al, 0
+  jz div_err
+  mov dl, al
+  mov al, 0
+div_loop:
+  cmp ah, dl
+  jc write_res
+  sub ah, dl
+  inc al
+  jmp div_loop
+div_err:
+  mov al, 0xFF     ; Error code
+  jmp write_res
+  
+write_res:
+  out 18, al       ; Output result to port 18
+  
+  ; Reset operator port to acknowledge calculation
+  mov al, 0
+  out 16, al
+  jmp wait_op
+  
+done:
+  hlt
+`,
+  },
+  {
+    id: 'robotic-machine',
+    name: 'Robotic Machine Controller',
+    description: 'Conveyor belt & robotic arm manufacturing loop (Ports 20-23)',
+    category: 'Hardware I/O',
+    code: `; Robotic Machine Controller
+; Controls conveyor belts and robotic arms on ports 20-23
+; Port 20: System Power (1=ON, 0=OFF)
+; Port 21: Conveyor Speed (0-100)
+; Port 22: Robot Arm Angle (0-180)
+; Port 23: Robot Claw (1=Clamp, 0=Release)
+
+start:
+  mov al, 1        ; Turn machine ON
+  out 20, al
+  
+  mov al, 60       ; Set conveyor speed to 60%
+  out 21, al
+  
+  ; Perform a sequence of arm rotations and claws
+  mov cx, 2        ; Loop twice
+arm_seq:
+  mov al, 45       ; Rotate arm left to pick-up point
+  out 22, al
+  call delay
+  
+  mov al, 1        ; Clamp claws (grab item)
+  out 23, al
+  call delay
+  
+  mov al, 135      ; Rotate arm right to drop-off point
+  out 22, al
+  call delay
+  
+  mov al, 0        ; Release claw (drop item)
+  out 23, al
+  call delay
+  
+  dec cx
+  jnz arm_seq
+  
+  ; Stop conveyor and shutdown power
+  mov al, 0
+  out 21, al       ; Stop conveyor
+  out 20, al       ; Power OFF
+  hlt
+
+delay:
+  mov dx, 0x5FFF
+delay_inner:
+  dec dx
+  jnz delay_inner
+  ret
+`,
+  },
 ];
 
 const CATEGORIES = [...new Set(TEMPLATES.map(t => t.category))];
@@ -283,7 +471,7 @@ export default function TemplateBrowser({ onInsertTemplate }) {
                     className="tmpl-use-btn"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onInsertTemplate(t.code);
+                      onInsertTemplate(t.code, t.id);
                     }}
                   >
                     ↳ Use Template

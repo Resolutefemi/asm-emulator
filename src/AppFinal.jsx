@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { darcula } from '@uiw/codemirror-theme-darcula';
-import { Decoration, ViewPlugin } from '@codemirror/view';
+import { Decoration, ViewPlugin, EditorView } from '@codemirror/view';
 import { RangeSetBuilder } from '@codemirror/state';
 import { Emulator8086 } from './emulator/Emulator8086';
 import { INSTRUCTION_SET, FLAG_BITS, searchInstructions } from './data/InstructionSet8086';
@@ -10,6 +10,9 @@ import SplashScreen from './components/SplashScreen';
 import ActivityBar from './components/ActivityBar';
 import WorkspaceExplorer from './components/WorkspaceExplorer';
 import TemplateBrowser from './components/TemplateBrowser';
+import DebuggerWidget from './components/DebuggerWidget';
+import SettingsModal, { DEFAULT_SETTINGS, applySettings } from './components/SettingsModal';
+import TabBar from './components/TabBar';
 import './styles/AppFinal.css';
 import './styles/ActivityBar.css';
 
@@ -105,6 +108,175 @@ done:
 
     hlt                    ; Halt CPU
 `
+  },
+  {
+    name: "Traffic Light Controller",
+    code: `; Traffic Light Controller
+; Cycles North-South and East-West traffic lights
+; Port 12 (0Ch) N-S: 1=Red, 2=Yellow, 4=Green
+; Port 13 (0Dh) E-W: 1=Red, 2=Yellow, 4=Green
+
+start:
+    ; State 1: N-S Green, E-W Red
+    mov al, 4        ; Green for N-S
+    out 12, al
+    mov al, 1        ; Red for E-W
+    out 13, al
+    call delay
+
+    ; State 2: N-S Yellow, E-W Red
+    mov al, 2        ; Yellow for N-S
+    out 12, al
+    call delay
+
+    ; State 3: N-S Red, E-W Green
+    mov al, 1        ; Red for N-S
+    out 12, al
+    mov al, 4        ; Green for E-W
+    out 13, al
+    call delay
+
+    ; State 4: N-S Red, E-W Yellow
+    mov al, 2        ; Yellow for E-W
+    out 13, al
+    call delay
+
+    jmp start        ; Infinite loop cycling lights
+
+delay:
+    mov cx, 0x0FFF
+delay_loop:
+    dec cx
+    jnz delay_loop
+    ret
+`
+  },
+  {
+    name: "Hardware Calculator",
+    code: `; Hardware Calculator
+; Operates on Ports 14, 15, 16 and outputs to Port 18
+; Port 14: Operand A
+; Port 15: Operand B
+; Port 16: Operator (1=+, 2=-, 3=*, 4=/)
+; Port 18: Result
+
+wait_op:
+    in al, 16        ; Read operator
+    cmp al, 0        ; Is operator port clear (idle)?
+    jz wait_op       ; Wait until user triggers calculation
+
+    mov cl, al       ; Save operator code
+    in al, 14        ; Read Operand A
+    mov ah, al       ; AH = A
+    in al, 15        ; AL = B
+
+    cmp cl, 1        ; Add operation
+    jz op_add
+    cmp cl, 2        ; Subtract operation
+    jz op_sub
+    cmp cl, 3        ; Multiply operation
+    jz op_mul
+    cmp cl, 4        ; Divide operation
+    jz op_div
+    jmp done
+
+op_add:
+    add ah, al
+    mov al, ah
+    jmp write_res
+
+op_sub:
+    sub ah, al
+    mov al, ah
+    jmp write_res
+
+op_mul:
+    mov dl, al
+    mov al, 0
+mul_loop:
+    cmp dl, 0
+    jz write_res
+    add al, ah
+    dec dl
+    jmp mul_loop
+
+op_div:
+    cmp al, 0
+    jz div_err
+    mov dl, al
+    mov al, 0
+div_loop:
+    cmp ah, dl
+    jc write_res
+    sub ah, dl
+    inc al
+    jmp div_loop
+div_err:
+    mov al, 0xFF     ; Error code
+
+write_res:
+    out 18, al       ; Write result to port 18
+    
+    ; Reset operator port to acknowledge and reset state
+    mov al, 0
+    out 16, al
+    jmp wait_op
+
+done:
+    hlt
+`
+  },
+  {
+    name: "Robotic Machine Controller",
+    code: `; Robotic Machine Controller
+; Controls conveyor belts and robotic arms on ports 20-23
+; Port 20: System Power (1=ON, 0=OFF)
+; Port 21: Conveyor Speed (0-100)
+; Port 22: Robot Arm Angle (0-180)
+; Port 23: Robot Claw (1=Clamp, 0=Release)
+
+start:
+  mov al, 1        ; Turn machine ON
+  out 20, al
+  
+  mov al, 60       ; Set conveyor speed to 60%
+  out 21, al
+  
+  ; Perform a sequence of arm rotations and claws
+  mov cx, 2        ; Loop twice
+arm_seq:
+  mov al, 45       ; Rotate arm left to pick-up point
+  out 22, al
+  call delay
+  
+  mov al, 1        ; Clamp claws (grab item)
+  out 23, al
+  call delay
+  
+  mov al, 135      ; Rotate arm right to drop-off point
+  out 22, al
+  call delay
+  
+  mov al, 0        ; Release claw (drop item)
+  out 23, al
+  call delay
+  
+  dec cx
+  jnz arm_seq
+  
+  ; Stop conveyor and shutdown power
+  mov al, 0
+  out 21, al       ; Stop conveyor
+  out 20, al       ; Power OFF
+  hlt
+
+delay:
+  mov dx, 0x5FFF
+delay_inner:
+  dec dx
+  jnz delay_inner
+  ret
+`
   }
 ];
 
@@ -132,11 +304,11 @@ const asmHighlightPlugin = ViewPlugin.fromClass(class {
     const directiveDeco = Decoration.mark({ class: "cm-asm-directive" });
 
     // Assembly instructions list
-    const instructions = /^(mov|add|sub|cmp|jmp|je|jz|jne|jnz|js|jns|jc|jb|jnc|jae|jo|jno|ja|jnbe|jbe|jna|jg|jnle|jge|jnl|jl|jnge|jle|jng|loop|call|ret|xor|and|or|inc|dec|push|pop|int|hlt|nop|lea)$/i;
+    const instructions = /^(mov|lea|add|adc|sub|sbb|cmp|mul|imul|div|idiv|inc|dec|neg|not|xor|and|or|test|xchg|cbw|cwd|shl|sal|shr|sar|rol|ror|rcl|rcr|push|pop|in|out|int|jmp|jcxz|je|jz|jne|jnz|js|jns|jo|jno|jp|jpe|jnp|jpo|jc|jnc|jb|jnae|jnb|jae|jbe|jna|jnbe|ja|jl|jnge|jnl|jge|jle|jng|jnle|jg|loop|loope|loopne|loopz|loopnz|call|ret|clc|stc|cmc|cld|std|cli|sti|nop|hlt)$/i;
     // 8086 registers list
     const registers = /^(ax|bx|cx|dx|si|di|bp|sp|ah|al|bh|bl|ch|cl|dh|dl|cs|ds|ss|es)$/i;
     // Directives list
-    const directives = /^(\.model|\.stack|\.data|\.code|db|dw|dd|org|assume|end|proc|endp|segment|ends)$/i;
+    const directives = /^(\.model|\.stack|\.data|\.code|db|dw|dd|org|assume|end|proc|endp|segment|ends|ptr|byte|word|dword|offset)$/i;
 
     for (let { from, to } of view.visibleRanges) {
       const text = view.state.doc.sliceString(from, to);
@@ -252,6 +424,42 @@ export default function AppFinal() {
   const [activeSelectedPath, setActiveSelectedPath] = useState('');
   const [directoryHandles, setDirectoryHandles] = useState({});
   const [expandedFolders, setExpandedFolders] = useState({});
+
+  const [settings, setSettings] = useState(() => {
+    try {
+      const stored = localStorage.getItem('ren_asm_settings');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return { ...DEFAULT_SETTINGS, ...parsed };
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return DEFAULT_SETTINGS;
+  });
+
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isFirstVisit, setIsFirstVisit] = useState(false);
+
+  // Apply settings whenever they change
+  useEffect(() => {
+    applySettings(settings);
+  }, [settings]);
+
+  // Check first visit on mount
+  useEffect(() => {
+    const hasVisited = localStorage.getItem('ren_asm_visited');
+    if (!hasVisited) {
+      setIsFirstVisit(true);
+      setIsSettingsOpen(true);
+      localStorage.setItem('ren_asm_visited', 'true');
+    }
+  }, []);
+
+  const handleSaveSettings = (newSettings) => {
+    setSettings(newSettings);
+    localStorage.setItem('ren_asm_settings', JSON.stringify(newSettings));
+  };
 
   const emulatorRef = useRef(new Emulator8086());
   const autoSaveTimerRef = useRef(null);
@@ -516,6 +724,7 @@ export default function AppFinal() {
     if (activeFile === oldPath) {
       setActiveFile(newPath);
     }
+    setOpenFiles(prev => prev.map(f => f === oldPath ? newPath : f));
   };
 
   // Git Bash style terminal states
@@ -535,6 +744,9 @@ export default function AppFinal() {
     'src/hello.asm': `.MODEL SMALL\n.STACK 100H\n.DATA\n    MSG DB 'How are you doing$'\n.CODE\nMAIN PROC\n    MOV AX, @DATA\n    MOV DS, AX\n    LEA DX, MSG\n    MOV AH, 09H\n    INT 21H\n    MOV AH, 4CH\n    INT 21H\nMAIN ENDP\nEND MAIN\n`
   });
   const [activeFile, setActiveFile] = useState('src/main.asm');
+  const [openFiles, setOpenFiles] = useState(['src/main.asm']);
+  const [isRunningRealTime, setIsRunningRealTime] = useState(false);
+  const realTimeTimerRef = useRef(null);
   const [fileExplorerOpen, setFileExplorerOpen] = useState(window.innerWidth > 1024);
   const [isCompiled, setIsCompiled] = useState(false);
   const [isLinked, setIsLinked] = useState(false);
@@ -643,10 +855,11 @@ export default function AppFinal() {
       saveToIndexedDB('virtualFiles', virtualFiles);
       saveToIndexedDB('virtualDirs', virtualDirs);
       saveToIndexedDB('activeFile', activeFile);
+      saveToIndexedDB('openFiles', openFiles);
     }, 1000);
 
     return () => clearTimeout(autoSaveTimerRef.current);
-  }, [code, virtualFiles, virtualDirs, activeFile]);
+  }, [code, virtualFiles, virtualDirs, activeFile, openFiles]);
 
   // Load progress from IndexedDB on mount
   useEffect(() => {
@@ -654,17 +867,32 @@ export default function AppFinal() {
       loadFromIndexedDB('asmCode'),
       loadFromIndexedDB('virtualFiles'),
       loadFromIndexedDB('virtualDirs'),
-      loadFromIndexedDB('activeFile')
-    ]).then(([savedCode, savedFiles, savedDirs, savedActiveFile]) => {
+      loadFromIndexedDB('activeFile'),
+      loadFromIndexedDB('openFiles')
+    ]).then(([savedCode, savedFiles, savedDirs, savedActiveFile, savedOpenFiles]) => {
       if (savedFiles) setVirtualFiles(savedFiles);
       if (savedDirs) setVirtualDirs(savedDirs);
       if (savedActiveFile) setActiveFile(savedActiveFile);
+      if (savedOpenFiles) {
+        setOpenFiles(savedOpenFiles);
+      } else if (savedActiveFile) {
+        setOpenFiles([savedActiveFile]);
+      }
       if (savedCode) setCode(savedCode);
     });
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (realTimeTimerRef.current) {
+        clearInterval(realTimeTimerRef.current);
+      }
+    };
   }, []);
 
   const runCode = () => {
@@ -789,6 +1017,233 @@ export default function AppFinal() {
         { type: 'error', text: `**Debug Error**: ${err.message}` }
       ]);
     }
+  };
+
+  const startRealTimeRun = () => {
+    try {
+      setTerminalOpen(true);
+      if (!isCompiled) {
+        emulatorRef.current.load(code);
+        setIsCompiled(true);
+        setIsLinked(true);
+      }
+      setIsRunningRealTime(true);
+      setEmulatorState(prev => ({ ...prev, running: true }));
+      setActiveTab('debugger');
+
+      const intervalDuration = 40;
+      const stepsPerInterval = 3;
+
+      realTimeTimerRef.current = setInterval(() => {
+        let halted = false;
+        let stepOutput = [];
+        let curIp = emulatorRef.current.ip;
+
+        for (let i = 0; i < stepsPerInterval; i++) {
+          curIp = emulatorRef.current.ip;
+          if (curIp >= emulatorRef.current.code.length) {
+            halted = true;
+            break;
+          }
+          try {
+            const stepResult = emulatorRef.current.step();
+            stepOutput = emulatorRef.current.output;
+            if (stepResult.halted) {
+              halted = true;
+              break;
+            }
+          } catch (err) {
+            setTerminalHistory(prev => [
+              ...prev,
+              { type: 'error', text: `**Real-time Run Error**: ${err.message}` }
+            ]);
+            clearInterval(realTimeTimerRef.current);
+            setIsRunningRealTime(false);
+            setEmulatorState(prev => ({ ...prev, running: false }));
+            return;
+          }
+        }
+
+        setEmulatorState({
+          registers: { ...emulatorRef.current.registers },
+          flags: { ...emulatorRef.current.flags },
+          ip: emulatorRef.current.ip,
+          memory: [...emulatorRef.current.memory],
+          output: [...stepOutput],
+          running: !halted
+        });
+
+        if (halted) {
+          clearInterval(realTimeTimerRef.current);
+          setIsRunningRealTime(false);
+          setTerminalHistory(prev => [
+            ...prev,
+            { type: 'info', text: '🔔 Program execution completed. Reset to run again.' }
+          ]);
+        }
+      }, intervalDuration);
+    } catch (err) {
+      setTerminalHistory(prev => [
+        ...prev,
+        { type: 'error', text: `**Assembly Error**: ${err.message}` }
+      ]);
+      setIsRunningRealTime(false);
+      setEmulatorState(prev => ({ ...prev, running: false }));
+    }
+  };
+
+  const pauseRealTimeRun = () => {
+    if (realTimeTimerRef.current) {
+      clearInterval(realTimeTimerRef.current);
+      realTimeTimerRef.current = null;
+    }
+    setIsRunningRealTime(false);
+    setEmulatorState(prev => ({ ...prev, running: false }));
+  };
+
+  const toggleRealTimeRun = () => {
+    if (isRunningRealTime) {
+      pauseRealTimeRun();
+    } else {
+      startRealTimeRun();
+    }
+  };
+
+  const loadRoboticMachineProject = async () => {
+    pauseRealTimeRun();
+    const asmPath = 'src/machine.asm';
+    const guidePath = 'docs/machine_guide.md';
+    const asmCode = `; Robotic Machine Controller
+; Controls conveyor belts and robotic arms on ports 20-23
+; Port 20: System Power (1=ON, 0=OFF)
+; Port 21: Conveyor Speed (0-100)
+; Port 22: Robot Arm Angle (0-180)
+; Port 23: Robot Claw (1=Clamp, 0=Release)
+
+start:
+  mov al, 1        ; Turn machine ON
+  out 20, al
+  
+  mov al, 60       ; Set conveyor speed to 60%
+  out 21, al
+  
+  ; Perform a sequence of arm rotations and claws
+  mov cx, 2        ; Loop twice
+arm_seq:
+  mov al, 45       ; Rotate arm left to pick-up point
+  out 22, al
+  call delay
+  
+  mov al, 1        ; Clamp claws (grab item)
+  out 23, al
+  call delay
+  
+  mov al, 135      ; Rotate arm right to drop-off point
+  out 22, al
+  call delay
+  
+  mov al, 0        ; Release claw (drop item)
+  out 23, al
+  call delay
+  
+  dec cx
+  jnz arm_seq
+  
+  ; Stop conveyor and shutdown power
+  mov al, 0
+  out 21, al       ; Stop conveyor
+  out 20, al       ; Power OFF
+  hlt
+
+delay:
+  mov dx, 0x5FFF
+delay_inner:
+  dec dx
+  jnz delay_inner
+  ret
+`;
+
+    const guideContent = `# Robotic Machine Controller Guide
+
+Welcome to the Robotic Machine Controller workspace! 
+
+This guide explains how to customize the mechanical arm movements, claw clamping, and conveyor belt speed using 8086 Assembly.
+
+---
+
+## 🛠️ Hardware Port Specifications
+
+The system is connected to 4 hardware ports that control various aspects of the simulation:
+
+| Port | Hex | Register / Signal | Function / Acceptable Values |
+| :--- | :--- | :--- | :--- |
+| **Port 20** | \`14h\` | **System Power** | \`1\` = Power ON (Machine runs)<br>\`0\` = Power OFF (Shutdown) |
+| **Port 21** | \`15h\` | **Conveyor Speed** | \`0\` to \`100\` (Percentage of speed) |
+| **Port 22** | \`16h\` | **Robotic Arm Angle** | \`0\` to \`180\` (Rotation degrees) |
+| **Port 23** | \`17h\` | **Robotic Claw** | \`1\` = Clamped / Grab<br>\`0\` = Released / Open |
+
+---
+
+## 📝 Customizing movements
+
+In your assembly code (\`src/machine.asm\`), look at the \`arm_seq\` label. You can modify the values written to the ports to perform different actions:
+
+### 1. Changing Conveyor Speed
+To speed up or slow down the conveyor, write a value between \`0\` and \`100\` to Port 21:
+\`\`\`assembly
+mov al, 80       ; 80% speed
+out 21, al
+\`\`\`
+
+### 2. Adjusting Arm Rotation
+The robotic arm rotates between 0° and 180°. For instance, to set the arm at 90° (neutral/center):
+\`\`\`assembly
+mov al, 90       ; 90 degrees
+out 22, al
+\`\`\`
+
+### 3. Controlling the Claw
+To grip or release an object:
+\`\`\`assembly
+mov al, 1        ; Grab item
+out 23, al
+
+mov al, 0        ; Drop item
+out 23, al
+\`\`\`
+
+---
+
+## 🚀 Running the Simulation
+1. Switch to the \`src/machine.asm\` tab.
+2. Click **▶ Run** in the top bar to watch the real-time simulation execute in the **Debugger** panel under **I/O Devices** > **Machine Controls**!
+`;
+
+    setVirtualFiles(prev => ({
+      ...prev,
+      [asmPath]: asmCode,
+      [guidePath]: guideContent
+    }));
+
+    if (workspacePath && window.__TAURI__) {
+      try {
+        await window.__TAURI__.fs.createDir(`${workspacePath}/docs`, { recursive: true }).catch(() => {});
+        await window.__TAURI__.fs.writeTextFile(`${workspacePath}/${asmPath}`, asmCode);
+        await window.__TAURI__.fs.writeTextFile(`${workspacePath}/${guidePath}`, guideContent);
+      } catch (err) {
+        console.error('Failed to save robotic machine files to disk:', err);
+      }
+    }
+
+    setOpenFiles(prev => {
+      const next = [...prev];
+      if (!next.includes(guidePath)) next.push(guidePath);
+      if (!next.includes(asmPath)) next.push(asmPath);
+      return next;
+    });
+
+    setActiveFile(asmPath);
+    setCode(asmCode);
   };
 
   // Global Keyboard Shortcuts
@@ -1038,6 +1493,8 @@ export default function AppFinal() {
       return;
     }
 
+    pauseRealTimeRun();
+
     // 1. Save current editor code to the old active file
     if (activeFile) {
       setVirtualFiles(prev => ({
@@ -1073,8 +1530,45 @@ export default function AppFinal() {
       [filepath]: fileContent
     }));
     
+    // Add to openFiles if not present
+    setOpenFiles(prev => {
+      if (prev.includes(filepath)) return prev;
+      return [...prev, filepath];
+    });
+    
     // Auto-close mobile explorer overlay
     setMobileExplorerOpen(false);
+  };
+
+  const handleCloseTab = (filepath) => {
+    // Save current active code if closing it
+    if (activeFile === filepath) {
+      setVirtualFiles(prev => ({
+        ...prev,
+        [filepath]: code
+      }));
+    }
+    
+    const nextOpenFiles = openFiles.filter(f => f !== filepath);
+    setOpenFiles(nextOpenFiles);
+    
+    if (activeFile === filepath) {
+      if (nextOpenFiles.length > 0) {
+        const newActive = nextOpenFiles[nextOpenFiles.length - 1];
+        setActiveFile(newActive);
+        setCode(virtualFiles[newActive] || '');
+      } else {
+        setActiveFile('');
+        setCode('');
+      }
+    }
+  };
+
+  const handleNewTab = () => {
+    const filename = prompt("Enter file name (e.g. src/new_code.asm):");
+    if (filename) {
+      handleNewFileSubmit(filename);
+    }
   };
 
   const triggerCreateFile = () => {
@@ -1140,6 +1634,10 @@ export default function AppFinal() {
         }));
         setActiveFile(newFullPath);
         setCode(defaultContent);
+        setOpenFiles(prev => {
+          if (prev.includes(newFullPath)) return prev;
+          return [...prev, newFullPath];
+        });
 
       } catch (err) {
         console.error('Failed to create file on disk:', err);
@@ -1168,6 +1666,10 @@ export default function AppFinal() {
       setVirtualFiles(prev => ({ ...prev, [filename]: defaultContent }));
       setActiveFile(filename);
       setCode(defaultContent);
+      setOpenFiles(prev => {
+        if (prev.includes(filename)) return prev;
+        return [...prev, filename];
+      });
     }
     
     setIsCreatingFile(false);
@@ -1263,6 +1765,8 @@ export default function AppFinal() {
       delete copy[filepath];
       return copy;
     });
+    // Update open files tab list
+    setOpenFiles(prev => prev.filter(f => f !== filepath));
     // If deleted active file, load another one
     if (activeFile === filepath) {
       const remaining = Object.keys(virtualFiles).filter(f => f !== filepath);
@@ -1298,6 +1802,8 @@ export default function AppFinal() {
       });
       return copy;
     });
+    // Update open files tab list
+    setOpenFiles(prev => prev.filter(f => !f.startsWith(folderName + '/')));
     // If active file was in deleted folder, load another one
     if (activeFile && activeFile.startsWith(folderName + '/')) {
       const remaining = Object.keys(virtualFiles).filter(f => !f.startsWith(folderName + '/'));
@@ -1312,6 +1818,7 @@ export default function AppFinal() {
   };
 
   const resetCode = () => {
+    pauseRealTimeRun();
     emulatorRef.current.reset();
     setEmulatorState({
       registers: { ax: 0, bx: 0, cx: 0, dx: 0, si: 0, di: 0, bp: 0, sp: 0xFFFF, cs: 0, ds: 0, ss: 0, es: 0 },
@@ -1565,7 +2072,7 @@ export default function AppFinal() {
       {/* Main Content */}
       <div className="main-content">
         {/* ── Activity Bar: 48px, desktop only ── */}
-        <ActivityBar activeTab={activityTab} onTabChange={setActivityTab} />
+        <ActivityBar activeTab={activityTab} onTabChange={setActivityTab} onSettingsClick={() => setIsSettingsOpen(true)} />
 
         {/* ── Primary Sidebar: swaps content on tab change ── */}
         <div className={`primary-sidebar${activityTab ? '' : ' sidebar-hidden'}`}>
@@ -1649,7 +2156,16 @@ export default function AppFinal() {
             </div>
           )}
           {activityTab === 'templates' && (
-            <TemplateBrowser onInsertTemplate={(tmplCode) => setCode(tmplCode)} />
+            <TemplateBrowser onInsertTemplate={(tmplCode, tmplId) => {
+              if (tmplId === 'robotic-machine') {
+                loadRoboticMachineProject();
+              } else {
+                setCode(tmplCode);
+                if (activeFile) {
+                  setVirtualFiles(prev => ({ ...prev, [activeFile]: tmplCode }));
+                }
+              }
+            }} />
           )}
         </div>
 
@@ -1713,9 +2229,13 @@ export default function AppFinal() {
                         <button
                           key={idx}
                           onClick={() => {
-                            setCode(project.code);
-                            if (activeFile) {
-                              setVirtualFiles(prev => ({ ...prev, [activeFile]: project.code }));
+                            if (project.name === "Robotic Machine Controller") {
+                              loadRoboticMachineProject();
+                            } else {
+                              setCode(project.code);
+                              if (activeFile) {
+                                setVirtualFiles(prev => ({ ...prev, [activeFile]: project.code }));
+                              }
                             }
                             setSamplesDropdownOpen(false);
                           }}
@@ -1854,6 +2374,44 @@ export default function AppFinal() {
                       onMouseOut={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-secondary)'; }}>
                         📚 Instruction Reference
                       </button>
+                      <button className="right-menu-item" style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-secondary)',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px'
+                      }} onClick={() => { setActiveMobileModal('debugger'); setRightMenuOpen(false); }}
+                      onMouseOver={(e) => { e.target.style.background = 'var(--bg-hover)'; e.target.style.color = 'var(--text-primary)'; }}
+                      onMouseOut={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-secondary)'; }}>
+                        🛠️ Assembly Debugger
+                      </button>
+                      <button className="right-menu-item" style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--text-secondary)',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px'
+                      }} onClick={() => { setIsSettingsOpen(true); setRightMenuOpen(false); }}
+                      onMouseOver={(e) => { e.target.style.background = 'var(--bg-hover)'; e.target.style.color = 'var(--text-primary)'; }}
+                      onMouseOut={(e) => { e.target.style.background = 'none'; e.target.style.color = 'var(--text-secondary)'; }}>
+                        ⚙️ Settings
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1880,12 +2438,16 @@ export default function AppFinal() {
               if (!isDirty) setIsDirty(true);
             }}
             theme={darcula}
-            extensions={[asmHighlightPlugin]}
+            extensions={[
+              asmHighlightPlugin,
+              settings.wordWrap ? EditorView.lineWrapping : [],
+            ]}
             height="100%"
             width="100%"
             basicSetup={{
-              lineNumbers: true,
-              highlightActiveLineGutter: true,
+              lineNumbers: settings.lineNumbers,
+              highlightActiveLineGutter: settings.highlightCurrentLine,
+              highlightActiveLine: settings.highlightCurrentLine,
               foldGutter: true,
               dropCursor: true,
               indentOnInput: true,
@@ -1917,6 +2479,12 @@ export default function AppFinal() {
                 onClick={() => setActiveTab('output')}
               >
                 📊 Output
+              </button>
+              <button
+                className={`tab ${activeTab === 'debugger' ? 'active' : ''}`}
+                onClick={() => setActiveTab('debugger')}
+              >
+                🛠️ Debugger
               </button>
               <button
                 className={`tab ${showReference ? 'active' : ''}`}
@@ -2052,6 +2620,16 @@ export default function AppFinal() {
                       ))
                     )}
                   </div>
+                </div>
+              )}
+
+              {activeTab === 'debugger' && (
+                <div className="debugger-details" style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                  <DebuggerWidget 
+                    emulatorState={emulatorState} 
+                    emulatorRef={emulatorRef}
+                    onUpdateState={setEmulatorState}
+                  />
                 </div>
               )}
             </div>
@@ -2366,13 +2944,16 @@ export default function AppFinal() {
               alignItems: 'center',
               gap: '8px'
             }}>
-              {activeMobileModal === 'cpu' && '💻 CPU State'}
+               {activeMobileModal === 'cpu' && '💻 CPU State'}
               {activeMobileModal === 'memory' && '🧠 Memory Explorer'}
               {activeMobileModal === 'output' && '📊 Output Log'}
               {activeMobileModal === 'reference' && '📚 Instruction Reference'}
+              {activeMobileModal === 'debugger' && '🛠️ Assembly Debugger'}
             </h2>
             <button
-              onClick={() => setActiveMobileModal(null)}
+              onClick={() => {
+                setActiveMobileModal(null);
+              }}
               style={{
                 background: 'transparent',
                 border: 'none',
@@ -2537,38 +3118,39 @@ export default function AppFinal() {
                   </div>
                 </div>
                 
-                <div className="memory-grid-fullscreen" style={{
+              <div className="memory-grid-fullscreen" style={{
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '8px',
+                  gap: '6px',
                   background: 'var(--bg-panel)',
                   border: '1px solid var(--border)',
                   borderRadius: '8px',
-                  padding: '12px',
+                  padding: '10px',
                   fontFamily: 'var(--font-mono)',
-                  fontSize: '14px',
-                  overflowX: 'auto'
+                  fontSize: '13px',
+                  overflowX: 'auto',
+                  WebkitOverflowScrolling: 'touch',
                 }}>
                   {Array.from({ length: 16 }).map((_, row) => {
-                    const rowAddr = memoryBaseAddress + row * 16;
+                    const rowAddr = memoryBaseAddress + row * 8;
                     return (
                       <div key={row} style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '12px',
-                        padding: '4px 0',
+                        gap: '8px',
+                        padding: '3px 0',
                         borderBottom: '1px solid rgba(255,255,255,0.02)',
-                        minWidth: '380px'
                       }}>
-                        <span style={{ color: 'var(--text-tertiary)', fontWeight: 'bold', width: '55px' }}>
-                          0x{rowAddr.toString(16).toUpperCase().padStart(4, '0')}:
+                        <span style={{ color: 'var(--text-tertiary)', fontWeight: 'bold', width: '48px', flexShrink: 0, fontSize: '11px' }}>
+                          {rowAddr.toString(16).toUpperCase().padStart(4, '0')}:
                         </span>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(16, 1fr)', gap: '6px', flex: 1 }}>
-                          {Array.from({ length: 16 }).map((_, col) => (
+                        <div className="memory-row-inner" style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '4px', flex: 1 }}>
+                          {Array.from({ length: 8 }).map((_, col) => (
                             <span key={col} style={{
                               color: (emulatorState.memory[rowAddr + col] || 0) === 0 ? 'var(--text-tertiary)' : '#ffffff',
                               textAlign: 'center',
-                              fontWeight: (emulatorState.memory[rowAddr + col] || 0) !== 0 ? 'bold' : 'normal'
+                              fontWeight: (emulatorState.memory[rowAddr + col] || 0) !== 0 ? 'bold' : 'normal',
+                              fontSize: '12px',
                             }}>
                               {(emulatorState.memory[rowAddr + col] || 0).toString(16).toUpperCase().padStart(2, '0')}
                             </span>
@@ -2660,6 +3242,17 @@ export default function AppFinal() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {activeMobileModal === 'debugger' && (
+              <div className="debugger-details-fullscreen font-sans" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+                <DebuggerWidget 
+                  emulatorState={emulatorState} 
+                  emulatorRef={emulatorRef}
+                  onUpdateState={setEmulatorState}
+                  onClose={() => setActiveMobileModal(null)}
+                />
               </div>
             )}
           </div>
@@ -2812,6 +3405,13 @@ export default function AppFinal() {
           </div>
         </div>
       )}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        onSave={handleSaveSettings}
+        isFirstVisit={isFirstVisit}
+      />
 
     </div>
     </>
