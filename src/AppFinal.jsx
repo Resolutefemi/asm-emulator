@@ -18,6 +18,160 @@ import './styles/ActivityBar.css';
 
 const SAMPLE_PROJECTS = [
   {
+    name: "Calculator (+, -, *, /)",
+    code: `; Full calculator with input — type numbers and operator in the
+; "Program Input" box, one per line, e.g.:
+;   15
+;   +
+;   27
+org 100h
+jmp start
+
+m1 db 'First number: $'
+m2 db 13,10,'Operator (+ - * /): $'
+m3 db 13,10,'Second number: $'
+m4 db 13,10,'Result = $'
+mErr db 13,10,'Error: divide by zero$'
+
+start:
+    lea dx, m1
+    mov ah, 9
+    int 21h
+    call read_num
+    mov bx, ax
+
+    lea dx, m2
+    mov ah, 9
+    int 21h
+    mov ah, 1
+    int 21h
+    mov cl, al
+
+    lea dx, m3
+    mov ah, 9
+    int 21h
+    call read_num
+    mov si, ax
+
+    mov ax, bx
+    cmp cl, 43
+    je do_add
+    cmp cl, 45
+    je do_sub
+    cmp cl, 42
+    je do_mul
+    cmp cl, 47
+    je do_div
+    jmp quit
+
+do_add:
+    add ax, si
+    jmp show
+do_sub:
+    sub ax, si
+    jmp show
+do_mul:
+    mul si
+    jmp show
+do_div:
+    cmp si, 0
+    je div_err
+    xor dx, dx
+    div si
+    jmp show
+
+div_err:
+    lea dx, mErr
+    mov ah, 9
+    int 21h
+    jmp quit
+
+show:
+    push ax
+    lea dx, m4
+    mov ah, 9
+    int 21h
+    pop ax
+    call print_num
+
+quit:
+    mov ah, 76
+    int 21h
+
+read_num:
+    push bx
+    push cx
+    push si
+    xor bx, bx
+    xor si, si
+rn_loop:
+    mov ah, 1
+    int 21h
+    cmp al, 13
+    je rn_enter
+    cmp al, 48
+    jb rn_loop
+    cmp al, 57
+    ja rn_loop
+    inc si
+    sub al, 48
+    mov ah, 0
+    mov cx, ax
+    mov ax, bx
+    push dx
+    mov dx, 0
+    mov bx, 10
+    mul bx
+    pop dx
+    add ax, cx
+    mov bx, ax
+    jmp rn_loop
+rn_enter:
+    cmp si, 0
+    je rn_loop
+    mov ax, bx
+    pop si
+    pop cx
+    pop bx
+    ret
+
+print_num:
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp ax, 0
+    jge pn1
+    push ax
+    mov dl, 45
+    mov ah, 2
+    int 21h
+    pop ax
+    neg ax
+pn1:
+    xor cx, cx
+    mov bx, 10
+pn2:
+    xor dx, dx
+    div bx
+    push dx
+    inc cx
+    cmp ax, 0
+    jne pn2
+pn3:
+    pop dx
+    add dl, 48
+    mov ah, 2
+    int 21h
+    loop pn3
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+`
+  },
+  {
     name: "Print Hello World",
     code: `; Print Hello World program for 8086 Assembly
 org 100h
@@ -392,6 +546,10 @@ export default function AppFinal() {
     output: [],
     running: false,
   });
+
+  // Program input for interactive ASM programs (INT 21h AH=1 reads from this).
+  // Each line is terminated with \r when fed to the emulator.
+  const [programInput, setProgramInput] = useState('');
 
   const [activeTab, setActiveTab] = useState('cpu');
   const [showReference, setShowReference] = useState(window.innerWidth > 1024);
@@ -915,8 +1073,11 @@ export default function AppFinal() {
       // Link
       setIsLinked(true);
 
-      // Run
-      const output = emulatorRef.current.run();
+      // Run — pass program input (each line terminated with \r for DOS AH=1)
+      const inputStr = programInput.split('\n').join('\r') + (programInput ? '\r' : '');
+      const output = emulatorRef.current.run(inputStr);
+      const outputLines = emulatorRef.current.getOutputLines();
+      const errorMsg = emulatorRef.current.error;
       
       const runHistory = [
         { type: 'info', text: 'Error messages:    None' },
@@ -926,11 +1087,15 @@ export default function AppFinal() {
         { type: 'info', text: `Executing ${ext.toUpperCase()}...` },
       ];
 
-      output.forEach(line => {
+      outputLines.forEach(line => {
         runHistory.push({ type: 'success', text: line });
       });
 
-      runHistory.push({ type: 'info', text: 'Program terminated successfully.' });
+      if (errorMsg) {
+        runHistory.push({ type: 'error', text: `Runtime error: ${errorMsg}` });
+      } else {
+        runHistory.push({ type: 'info', text: 'Program terminated successfully.' });
+      }
 
       setTerminalHistory([...newHistory, ...runHistory]);
 
@@ -938,9 +1103,9 @@ export default function AppFinal() {
       setEmulatorState({
         registers: { ...emulatorRef.current.registers },
         flags: { ...emulatorRef.current.flags },
-        ip: emulatorRef.current.ip,
-        memory: [...emulatorRef.current.memory],
-        output: [...output],
+        ip: emulatorRef.current.registers.ip,
+        memory: [...emulatorRef.current.memory].slice(0, 65536),
+        output: outputLines,
         running: false,
       });
 
@@ -959,55 +1124,62 @@ export default function AppFinal() {
     try {
       setTerminalOpen(true);
       let isNewStart = false;
+      let prevOutputLen = 0;
 
       // Compile if not compiled yet
       if (!isCompiled) {
         emulatorRef.current.load(code);
+        // Feed program input on first step
+        const inputStr = programInput.split('\n').join('\r') + (programInput ? '\r' : '');
+        emulatorRef.current.inputBuffer = inputStr;
+        emulatorRef.current.inputPos = 0;
         setIsCompiled(true);
-        setIsLinked(true); // Auto link for step debug
+        setIsLinked(true);
         isNewStart = true;
+      } else {
+        prevOutputLen = emulatorState.output.join('\n').length;
       }
 
-      const currentIp = emulatorRef.current.ip;
-      if (currentIp >= emulatorRef.current.code.length) {
+      // Execute one step
+      const ins = emulatorRef.current.step();
+      if (!ins) {
         setTerminalHistory(prev => [
           ...prev,
-          { type: 'info', text: '🔔 Program execution completed. Reset to run again.' }
+          { type: 'info', text: 'Program execution completed. Reset to run again.' }
         ]);
         return;
       }
 
-      const instruction = emulatorRef.current.code[currentIp];
-      const result = emulatorRef.current.step();
-
-      const stepLog = result.instruction 
-        ? `${result.instruction.instr} ${result.instruction.args.join(', ')}`
-        : 'nop';
-
-      const stepOutput = emulatorRef.current.output;
-      const printLines = stepOutput.slice(emulatorState.output.length);
+      const stepLog = `${ins.mnemonic} ${ins.operands.join(', ')}`;
+      const newLines = emulatorRef.current.getNewOutputLines(
+        emulatorState.output.join('\n').length + (emulatorState.output.length > 0 ? emulatorState.output.length - 1 : 0)
+      );
 
       const terminalLogs = [
-        { type: 'info', text: `Step [IP=0x${currentIp.toString(16).toUpperCase()}]: ${stepLog}` }
+        { type: 'info', text: `Step [IP=0x${emulatorRef.current.registers.ip.toString(16).toUpperCase()}]: ${stepLog}` }
       ];
-      printLines.forEach(line => {
+      newLines.forEach(line => {
         terminalLogs.push({ type: 'success', text: line });
       });
 
-      if (result.halted) {
-        terminalLogs.push({ type: 'info', text: '✓ CPU halted (program end)' });
+      if (emulatorRef.current.halted) {
+        terminalLogs.push({ type: 'info', text: 'CPU halted (program end)' });
+      }
+      if (emulatorRef.current.error) {
+        terminalLogs.push({ type: 'error', text: `Runtime error: ${emulatorRef.current.error}` });
       }
 
       setTerminalHistory(prev => [...prev, ...terminalLogs]);
 
       // Sync register states
+      const allOutputLines = emulatorRef.current.getOutputLines();
       setEmulatorState({
         registers: { ...emulatorRef.current.registers },
         flags: { ...emulatorRef.current.flags },
-        ip: emulatorRef.current.ip,
-        memory: [...emulatorRef.current.memory],
-        output: [...stepOutput],
-        running: !result.halted,
+        ip: emulatorRef.current.registers.ip,
+        memory: [...emulatorRef.current.memory].slice(0, 65536),
+        output: allOutputLines,
+        running: !emulatorRef.current.halted && !emulatorRef.current.error,
       });
 
       setActiveTab('cpu');
@@ -1036,19 +1208,12 @@ export default function AppFinal() {
 
       realTimeTimerRef.current = setInterval(() => {
         let halted = false;
-        let stepOutput = [];
-        let curIp = emulatorRef.current.ip;
+        let curIp = emulatorRef.current.registers.ip;
 
         for (let i = 0; i < stepsPerInterval; i++) {
-          curIp = emulatorRef.current.ip;
-          if (curIp >= emulatorRef.current.code.length) {
-            halted = true;
-            break;
-          }
           try {
             const stepResult = emulatorRef.current.step();
-            stepOutput = emulatorRef.current.output;
-            if (stepResult.halted) {
+            if (!stepResult || emulatorRef.current.halted || emulatorRef.current.error) {
               halted = true;
               break;
             }
@@ -1064,12 +1229,13 @@ export default function AppFinal() {
           }
         }
 
+        const outputLines = emulatorRef.current.getOutputLines();
         setEmulatorState({
           registers: { ...emulatorRef.current.registers },
           flags: { ...emulatorRef.current.flags },
-          ip: emulatorRef.current.ip,
-          memory: [...emulatorRef.current.memory],
-          output: [...stepOutput],
+          ip: emulatorRef.current.registers.ip,
+          memory: [...emulatorRef.current.memory].slice(0, 65536),
+          output: outputLines,
           running: !halted
         });
 
@@ -2010,22 +2176,29 @@ out 23, al
         try {
           const targetCode = virtualFiles[matchedFile];
           emulatorRef.current.load(targetCode);
-          const output = emulatorRef.current.run();
+          const inputStr = programInput.split('\n').join('\r') + (programInput ? '\r' : '');
+          emulatorRef.current.run(inputStr);
+          const outputLines = emulatorRef.current.getOutputLines();
+          const errorMsg = emulatorRef.current.error;
           
-          output.forEach(line => {
+          outputLines.forEach(line => {
             response.push({ type: 'success', text: line });
           });
 
           setEmulatorState({
             registers: { ...emulatorRef.current.registers },
             flags: { ...emulatorRef.current.flags },
-            ip: emulatorRef.current.ip,
-            memory: [...emulatorRef.current.memory],
-            output: [...output],
+            ip: emulatorRef.current.registers.ip,
+            memory: [...emulatorRef.current.memory].slice(0, 65536),
+            output: outputLines,
             running: false,
           });
 
-          response.push({ type: 'info', text: 'Program terminated successfully.' });
+          if (errorMsg) {
+            response.push({ type: 'error', text: `Runtime error: ${errorMsg}` });
+          } else {
+            response.push({ type: 'info', text: 'Program terminated successfully.' });
+          }
         } catch (err) {
           response.push({ type: 'error', text: `Runtime Error: ${err.message}` });
         }
@@ -2602,6 +2775,30 @@ out 23, al
 
               {activeTab === 'output' && (
                 <div className="output-details">
+                  <div className="program-input-section" style={{ marginBottom: '8px', padding: '8px', background: 'var(--bg-secondary, #1e1e1e)', borderRadius: '6px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary, #999)', display: 'block', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      📥 Program Input (for INT 21h AH=1 — one value per line)
+                    </label>
+                    <textarea
+                      value={programInput}
+                      onChange={(e) => setProgramInput(e.target.value)}
+                      placeholder={"Type input here, e.g.:\n15\n+\n27"}
+                      style={{
+                        width: '100%',
+                        minHeight: '60px',
+                        maxHeight: '120px',
+                        background: 'var(--bg-primary, #0d0d0d)',
+                        color: 'var(--text-primary, #e0e0e0)',
+                        border: '1px solid var(--border-color, #333)',
+                        borderRadius: '4px',
+                        padding: '6px 8px',
+                        fontFamily: 'var(--font-mono, monospace)',
+                        fontSize: '13px',
+                        resize: 'vertical',
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
                   <div className="output-header">
                     <h4>Output Log</h4>
                     <button className="btn-clear-output" onClick={clearTerminal} title="Clear output">
@@ -2618,6 +2815,12 @@ out 23, al
                           <span className="line-text">{line}</span>
                         </div>
                       ))
+                    )}
+                    {emulatorState.running && (
+                      <div className="output-line" style={{ opacity: 0.6 }}>
+                        <span className="line-num">_</span>
+                        <span className="line-text">▶ running...</span>
+                      </div>
                     )}
                   </div>
                 </div>
