@@ -285,48 +285,18 @@ jobs:
           KEY_ALIAS: ${{ steps.keystore.outputs.key_alias }}
           KEY_PASSWORD: ${{ steps.keystore.outputs.key_password }}
         run: |
-          cat > src-tauri/gen/android/key.properties <<EOF
-          storeFile=$KEYSTORE_PATH
-          storePassword=$STORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD
-          EOF
-          # Apply the key.properties in the app build.gradle.kts
-          APP_GRADLE=src-tauri/gen/android/app/build.gradle.kts
-          if [ -f "$APP_GRADLE" ]; then
-            # Insert signing config before the android {} block
-            python3 - <<'PY'
-            import re
-            path = "src-tauri/gen/android/app/build.gradle.kts"
-            with open(path) as f:
-              content = f.read()
-            signing_block = '''
-            val keystoreProperties = Properties().apply {
-                val propsFile = rootProject.file("key.properties")
-                if (propsFile.exists()) {
-                    load(propsFile.inputStream())
-                }
-            }
-            '''
-            android_block = '''
-            android {
-                val signingConfig = signingConfigs.create("release") {
-                    storeFile = file(keystoreProperties["storeFile"] as String)
-                    storePassword = keystoreProperties["storePassword"] as String
-                    keyAlias = keystoreProperties["keyAlias"] as String
-                    keyPassword = keystoreProperties["keyPassword"] as String
-                }
-            '''
-            # Insert imports if missing
-            if "import java.util.Properties" not in content:
-                content = "import java.util.Properties\n" + content
-            # Insert signing config block before android block
-            content = content.replace("android {", signing_block + android_block, 1)
-            # Re-add the original android body content
-            with open(path, "w") as f:
-                f.write(content)
-            PY
-          fi
+          {
+            printf 'storeFile=%s\n' "$KEYSTORE_PATH"
+            printf 'storePassword=%s\n' "$STORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > src-tauri/gen/android/key.properties
+          # Patch app/build.gradle.kts to wire up the release signingConfig.
+          # The patcher is a committed Python script — embedding Python in
+          # a YAML heredoc was fragile (indentation mangles the source).
+          python3 scripts/patch-android-signing.py
+          echo "=== Patched build.gradle.kts (signing-related lines) ==="
+          grep -nE "signingConfig|keystoreProperties|import java" src-tauri/gen/android/app/build.gradle.kts || echo "(no matches — patch may not have applied)"
 
       - name: Build Android APK
         env:
