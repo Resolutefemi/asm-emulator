@@ -92,7 +92,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install Rust Stable
@@ -128,10 +128,18 @@ jobs:
 
       # tauri-action builds the app, then creates a draft release on the
       # computed tag and uploads the platform's bundle artifacts.
+      #
+      # LD_LIBRARY_PATH / DYLD_FALLBACK_LIBRARY_PATH: GitHub runners set
+      # these to values that confuse Rust's `std::env::join_paths` (it
+      # throws "failed to join paths from $LD_LIBRARY_PATH together").
+      # Clearing them for the build step is safe — Tauri/cargo find libs
+      # via pkg-config `-L` flags, not via these env vars.
       - name: Build and Upload (Tauri Action)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LD_LIBRARY_PATH: ""
+          DYLD_FALLBACK_LIBRARY_PATH: ""
         with:
           tagName: ${{ needs.prepare.outputs.tag }}
           releaseName: "RenASM v${{ needs.prepare.outputs.version }}"
@@ -162,7 +170,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install Rust Stable (Android targets)
@@ -196,9 +204,14 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
-      # ALWAYS run `tauri android init` — it is idempotent and will fill in
-      # any missing gradle/build.gradle.kts/settings.gradle.kts/gradlew files
-      # that are NOT committed to the repo (only icons + manifest are committed).
+      # The repo only commits a PARTIAL `gen/android/` (icons + manifest,
+      # no gradle/Kotlin sources), which makes `tauri android init` refuse
+      # to regenerate ("Project directory .../java/com/renasm/playground
+      # does not exist"). Deleting the directory first lets init rebuild
+      # the full project from scratch on every run.
+      - name: Reset partial Android project
+        run: rm -rf src-tauri/gen/android
+
       - name: Init Android Project
         run: npx tauri android init
 
@@ -207,6 +220,8 @@ jobs:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           NDK_HOME: ${{ env.NDK_HOME }}
+          # See build-desktop for rationale on clearing these.
+          LD_LIBRARY_PATH: ""
         run: npx tauri android build --apk
 
       - name: List built APKs
