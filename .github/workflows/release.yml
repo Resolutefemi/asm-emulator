@@ -148,11 +148,14 @@ jobs:
 
             Pick the asset for your platform:
             - **Windows**: `.msi` (installer) or `.exe` (NSIS setup)
+              - The installer bundles WebView2 — works offline, no separate download.
+              - Windows SmartScreen may warn on first launch (unsigned). Click "More info" → "Run anyway".
             - **macOS**: `.dmg` (universal — works on Intel + Apple Silicon)
+              - Builds are unsigned. On first launch, right-click the app → "Open" → "Open anyway" to bypass Gatekeeper.
             - **Linux**: `.AppImage` (portable) or `.deb` (Debian/Ubuntu)
-            - **Android**: `.apk` (see the Android asset below)
-
-            > ⚠️ macOS builds are unsigned. On first launch, right-click the app → "Open" → "Open anyway" to bypass Gatekeeper.
+              - For AppImage: `chmod +x RenASM_*.AppImage && ./RenASM_*.AppImage`
+            - **Android**: `.apk` (signed, universal — works on arm64/arm/x86/x64)
+              - Allow "Install from unknown sources" in Settings if prompted.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
@@ -215,6 +218,116 @@ jobs:
       - name: Init Android Project
         run: npx tauri android init
 
+      # ─── Android signing ────────────────────────────────────────────
+      # Android requires APKs to be signed before they can be installed.
+      # Without signing, the build produces "app-universal-release-unsigned.apk"
+      # and Android refuses to install it with "package appears to be invalid".
+      #
+      # Two modes:
+      #   1. If ANDROID_KEYSTORE_BASE64 secret is set: decode + use the
+      #      permanent keystore (recommended — same key across releases,
+      #      so app updates don't require uninstall).
+      #   2. If not set: generate an ephemeral debug-style keystore for
+      #      this build (works, but each release has a different key,
+      #      so users must uninstall before updating).
+      #
+      # To set up a permanent keystore (one-time, takes 1 minute):
+      #   keytool -genkey -v -keystore rencode.jks -keyalg RSA -keysize 2048 \\
+      #     -validity 10000 -alias rencode
+      #   base64 -w0 rencode.jks > keystore.b64
+      #   # Then paste keystore.b64 contents into repo secret
+      #   # ANDROID_KEYSTORE_BASE64 at https://github.com/Resolutefemi/
+      #   # asm-emulator/settings/secrets/actions
+      #   # Also set:
+      #   #   ANDROID_KEYSTORE_PASSWORD (the -storepass you chose)
+      #   #   ANDROID_KEY_ALIAS         (e.g. "rencode")
+      #   #   ANDROID_KEY_PASSWORD      (the -keypass you chose)
+      - name: Prepare Android signing keystore
+        id: keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          KEYSTORE_PATH="$HOME/rencode.jks"
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "Using permanent keystore from secret"
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+            echo "store_password=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_OUTPUT"
+            echo "key_alias=$ANDROID_KEY_ALIAS"               >> "$GITHUB_OUTPUT"
+            echo "key_password=$ANDROID_KEY_PASSWORD"         >> "$GITHUB_OUTPUT"
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret set — generating ephemeral keystore"
+            echo "WARNING: Each release will have a different key. Users must uninstall"
+            echo "         the old app before installing a new release."
+            keytool -genkey -v \
+              -keystore "$KEYSTORE_PATH" \
+              -keyalg RSA -keysize 2048 \
+              -validity 10000 \
+              -alias rencode \
+              -storepass rencode123 \
+              -keypass rencode123 \
+              -dname "CN=RenASM, OU=Dev, O=Renance, L=Lagos, ST=Lagos, C=NG"
+            echo "store_password=rencode123" >> "$GITHUB_OUTPUT"
+            echo "key_alias=rencode"          >> "$GITHUB_OUTPUT"
+            echo "key_password=rencode123"   >> "$GITHUB_OUTPUT"
+          fi
+          echo "keystore_path=$KEYSTORE_PATH" >> "$GITHUB_OUTPUT"
+
+      # Write a gradle properties file that tells the Android build to sign
+      # the release APK with our keystore. Without this, Gradle produces
+      # an unsigned APK even with --release.
+      - name: Configure Gradle signing
+        env:
+          KEYSTORE_PATH: ${{ steps.keystore.outputs.keystore_path }}
+          STORE_PASSWORD: ${{ steps.keystore.outputs.store_password }}
+          KEY_ALIAS: ${{ steps.keystore.outputs.key_alias }}
+          KEY_PASSWORD: ${{ steps.keystore.outputs.key_password }}
+        run: |
+          cat > src-tauri/gen/android/key.properties <<EOF
+          storeFile=$KEYSTORE_PATH
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+          # Apply the key.properties in the app build.gradle.kts
+          APP_GRADLE=src-tauri/gen/android/app/build.gradle.kts
+          if [ -f "$APP_GRADLE" ]; then
+            # Insert signing config before the android {} block
+            python3 - <<'PY'
+            import re
+            path = "src-tauri/gen/android/app/build.gradle.kts"
+            with open(path) as f:
+              content = f.read()
+            signing_block = '''
+            val keystoreProperties = Properties().apply {
+                val propsFile = rootProject.file("key.properties")
+                if (propsFile.exists()) {
+                    load(propsFile.inputStream())
+                }
+            }
+            '''
+            android_block = '''
+            android {
+                val signingConfig = signingConfigs.create("release") {
+                    storeFile = file(keystoreProperties["storeFile"] as String)
+                    storePassword = keystoreProperties["storePassword"] as String
+                    keyAlias = keystoreProperties["keyAlias"] as String
+                    keyPassword = keystoreProperties["keyPassword"] as String
+                }
+            '''
+            # Insert imports if missing
+            if "import java.util.Properties" not in content:
+                content = "import java.util.Properties\n" + content
+            # Insert signing config block before android block
+            content = content.replace("android {", signing_block + android_block, 1)
+            # Re-add the original android body content
+            with open(path, "w") as f:
+                f.write(content)
+            PY
+          fi
+
       - name: Build Android APK
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
@@ -226,7 +339,46 @@ jobs:
 
       - name: List built APKs
         run: |
-          echo "=== APK files ==="
+          echo "=== APK files (pre-sign) ==="
+          find src-tauri/gen/android -name "*.apk" -print
+
+      # The Gradle signing config above SHOULD produce a signed APK.
+      # But if the key.properties injection failed silently, we'll still
+      # get an unsigned APK. This step catches that and signs manually
+      # with apksigner as a fallback.
+      - name: Fallback — sign APK if still unsigned
+        env:
+          KEYSTORE_PATH: ${{ steps.keystore.outputs.keystore_path }}
+          STORE_PASSWORD: ${{ steps.keystore.outputs.store_password }}
+          KEY_ALIAS: ${{ steps.keystore.outputs.key_alias }}
+          KEY_PASSWORD: ${{ steps.keystore.outputs.key_password }}
+        run: |
+          UNSIGNED=$(find src-tauri/gen/android -name "*-unsigned.apk" | head -1)
+          if [ -n "$UNSIGNED" ]; then
+            echo "Found unsigned APK: $UNSIGNED"
+            echo "Signing with apksigner (fallback)..."
+            SIGNED="${UNSIGNED%-unsigned.apk}.apk"
+            # Zip-align first (required before signing with v2+)
+            BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)
+            "${BUILD_TOOLS}zipalign" -p -f -v 4 "$UNSIGNED" "$SIGNED"
+            "${BUILD_TOOLS}apksigner" sign \
+              --ks "$KEYSTORE_PATH" \
+              --ks-pass "pass:$STORE_PASSWORD" \
+              --ks-key-alias "$KEY_ALIAS" \
+              --key-pass "pass:$KEY_PASSWORD" \
+              --out "$SIGNED" \
+              "$UNSIGNED"
+            "${BUILD_TOOLS}apksigner" verify --verbose "$SIGNED"
+            # Remove the unsigned version
+            rm -f "$UNSIGNED"
+            echo "Signed APK: $SIGNED"
+          else
+            echo "No unsigned APK found — Gradle signing worked."
+          fi
+
+      - name: List final APKs
+        run: |
+          echo "=== APK files (final) ==="
           find src-tauri/gen/android -name "*.apk" -print
 
       # Append APKs to the SAME draft release created by the desktop job.
