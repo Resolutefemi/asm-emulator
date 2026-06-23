@@ -38,8 +38,15 @@ const PLATFORMS = [
     label: "Windows",
     icon: ICONS.windows,
     matchers: [
-      { regex: /-setup\.exe$|\.exe$/i, label: ".exe", priority: 1 },
-      { regex: /\.msi$/i, label: ".msi", priority: 2 },
+      // .msi is the DEFAULT Windows download (priority 1) because:
+      //  - It's the official Windows Installer format (better integration
+      //    with Add/Remove Programs, Group Policy, repair/uninstall)
+      //  - Bundles the full WebView2 runtime offline (~200 MB) — no silent
+      //    failures due to missing internet at install time
+      //  - Same size as the .exe in our builds (both bundle WebView2)
+      { regex: /\.msi$/i, label: ".msi", priority: 1 },
+      // .exe (NSIS) is the fallback (priority 2) for users who prefer it.
+      { regex: /-setup\.exe$|\.exe$/i, label: ".exe", priority: 2 },
     ],
   },
   {
@@ -293,16 +300,22 @@ function renderVersionsList(releases) {
       const { groups, unclassified } = groupAssetsByPlatform(r.assets || []);
 
       // Build asset buttons (one per asset, grouped by platform then unclassified)
+      // The first (priority 1) asset of each platform gets a "Recommended" pill
+      // so users know which file to pick when there are multiple options.
       const allButtons = [];
       for (const p of PLATFORMS) {
-        for (const a of groups[p.id]) {
+        const platformAssets = groups[p.id];
+        for (let i = 0; i < platformAssets.length; i++) {
+          const a = platformAssets[i];
           const sizeStr = formatBytes(a.size);
+          const isRecommended = i === 0 && platformAssets.length > 1;
           allButtons.push(`
-            <a class="asset-button" href="${a.url}" 
-               aria-label="Download ${escapeHtml(a.name)}">
+            <a class="asset-button${isRecommended ? " is-recommended" : ""}" href="${a.url}" 
+               aria-label="Download ${escapeHtml(a.name)}${isRecommended ? " (recommended)" : ""}">
               <span class="asset-platform">${a.platformLabel}</span>
               <span>${a.fileLabel}</span>
               ${sizeStr ? `<span class="asset-size">${sizeStr}</span>` : ""}
+              ${isRecommended ? `<span class="asset-rec">Recommended</span>` : ""}
             </a>`);
         }
       }

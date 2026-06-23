@@ -572,6 +572,39 @@ main {
   opacity: 0.85;
 }
 
+/* Recommended asset button — slightly stronger border + accent tint
+   so users notice it's the default pick. */
+.asset-button.is-recommended {
+  border-color: var(--accent-dim);
+  background: var(--accent-glow-soft);
+}
+
+.asset-button.is-recommended:hover {
+  background: var(--accent-glow-soft);
+  border-color: var(--accent);
+  box-shadow: 0 0 16px var(--accent-glow-soft);
+}
+
+/* "Recommended" pill inside the button — small green badge */
+.asset-button .asset-rec {
+  font-size: 0.62rem;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--bg);
+  background: var(--accent);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  margin-left: 0.2rem;
+  box-shadow: 0 0 6px var(--accent-glow-soft);
+}
+
+.asset-button:hover .asset-rec {
+  color: var(--bg);
+  background: var(--accent-bright);
+}
+
 .version-notes {
   font-size: 0.88rem;
   color: var(--fg-secondary);

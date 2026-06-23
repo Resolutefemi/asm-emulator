@@ -147,11 +147,17 @@ jobs:
             Automated cross-platform release of **RenASM** (8086 ASM Emulator).
 
             Pick the asset for your platform:
-            - **Windows**: `.msi` (installer) or `.exe` (NSIS setup)
-              - The installer bundles WebView2 — works offline, no separate download.
-              - Windows SmartScreen may warn on first launch (unsigned). Click "More info" → "Run anyway".
+            - **Windows**: `.msi` (recommended — official Windows Installer,
+              bundles WebView2 offline so no internet needed at install time)
+              or `.exe` (NSIS setup, same WebView2 bundling)
+              - The installer is ~200 MB because it bundles the full WebView2
+                runtime. Once installed, the app launches without any network
+                access.
+              - Windows SmartScreen may warn on first launch (unsigned).
+                Click "More info" → "Run anyway".
             - **macOS**: `.dmg` (universal — works on Intel + Apple Silicon)
-              - Builds are unsigned. On first launch, right-click the app → "Open" → "Open anyway" to bypass Gatekeeper.
+              - Builds are unsigned. On first launch, right-click the app →
+                "Open" → "Open anyway" to bypass Gatekeeper.
             - **Linux**: `.AppImage` (portable) or `.deb` (Debian/Ubuntu)
               - For AppImage: `chmod +x RenASM_*.AppImage && ./RenASM_*.AppImage`
             - **Android**: `.apk` (signed, universal — works on arm64/arm/x86/x64)
