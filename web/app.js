@@ -399,4 +399,31 @@ async function init() {
   }
 }
 
+/* -------------------- Sticky navbar scroll effect --------------------
+   Adds .is-scrolled to .nav-wrapper once the user scrolls past ~20px.
+   This makes the navbar more opaque + compact + accent-bordered when
+   content is scrolling behind it, improving readability.
+   Uses passive listener + requestAnimationFrame for perf. */
+function initStickyNav() {
+  const wrapper = document.getElementById("nav-wrapper");
+  if (!wrapper) return;
+
+  let ticking = false;
+  const onScroll = () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      if (window.scrollY > 20) {
+        wrapper.classList.add("is-scrolled");
+      } else {
+        wrapper.classList.remove("is-scrolled");
+      }
+      ticking = false;
+    });
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll(); // initialize state on load
+}
+
 init();
+initStickyNav();

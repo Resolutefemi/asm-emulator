@@ -84,6 +84,31 @@ img {
 }
 
 /* ===================== Nav ===================== */
+
+/* Wrapper that spans the full viewport width so the sticky background
+   + blur covers edge-to-edge, even though the .nav inside is capped
+   to var(--max-width). */
+.nav-wrapper {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  /* Same background/blur as .nav so the wrapper visually extends the
+     navbar to the full viewport. */
+  background: rgba(10, 10, 10, 0.75);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--border);
+  transition: background-color 0.2s ease, border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.nav-wrapper.is-scrolled {
+  background: rgba(10, 10, 10, 0.92);
+  border-bottom-color: var(--accent-dim);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4),
+              0 0 1px var(--accent-glow-soft);
+}
+
 .nav {
   display: flex;
   align-items: center;
@@ -92,7 +117,23 @@ img {
   max-width: var(--max-width);
   width: 100%;
   margin: 0 auto;
-  border-bottom: 1px solid var(--border);
+  /* Padding transitions to a compact look when scrolled */
+  transition: padding 0.2s ease;
+}
+
+.nav-wrapper.is-scrolled .nav {
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+}
+
+/* Brand area scales down slightly when scrolled (compact nav) */
+.nav-wrapper.is-scrolled .brand-logo {
+  width: 28px;
+  height: 28px;
+}
+
+.nav-wrapper.is-scrolled .brand-name {
+  font-size: 0.98rem;
 }
 
 .brand {
