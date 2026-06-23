@@ -5,6 +5,13 @@ description = "8086 ASM Emulator Playground"
 authors = ["Resolute Femi"]
 edition = "2021"
 
+# Required by Tauri v2 mobile (Android/iOS): the Rust code is compiled as a
+# `cdylib` and invoked via `#[tauri::mobile_entry_point]` in lib.rs.
+# Desktop builds also use this lib via `main.rs` calling `renance_playground_lib::run()`.
+[lib]
+name = "renance_playground_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
