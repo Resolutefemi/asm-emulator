@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RenASM — 8086 ASM Emulator</title>
+  <meta name="description" content="RenASM is a cross-platform 8086 assembly emulator. Download for macOS, Windows, Linux, and Android." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0a0a'/%3E%3Ctext x='16' y='23' font-family='-apple-system,system-ui,sans-serif' font-size='20' font-weight='700' text-anchor='middle' fill='%23fafafa'%3ER%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <nav class="nav">
+    <a href="/" class="brand" aria-label="RenASM home">
+      <span class="brand-mark" aria-hidden="true">R</span>
+      <span class="brand-name">RenASM</span>
+    </a>
+    <div class="nav-links">
+      <a href="#versions">Versions</a>
+      <a href="https://github.com/Resolutefemi/asm-emulator" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+    </div>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <span class="hero-eyebrow" id="hero-eyebrow">Loading latest release…</span>
+      <h1 class="hero-title">RenASM</h1>
+      <p class="hero-tagline">
+        A cross-platform 8086 assembly emulator. Write, run, and debug
+        Intel 8086 assembly on macOS, Windows, Linux, or Android.
+      </p>
+
+      <div class="downloads-grid" id="latest-downloads" aria-live="polite">
+        <p class="state-message">Loading downloads…</p>
+      </div>
+
+      <p class="hero-meta" id="hero-meta"></p>
+    </section>
+
+    <section class="versions" id="versions">
+      <div class="section-header">
+        <h2 class="section-title">All versions</h2>
+        <a class="section-link" href="https://github.com/Resolutefemi/asm-emulator/releases" target="_blank" rel="noopener noreferrer">View on GitHub ↗</a>
+      </div>
+      <div class="versions-list" id="versions-list" aria-live="polite">
+        <p class="state-message">Loading release history…</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p class="footer-note">
+      Downloads are served automatically from
+      <a href="https://github.com/Resolutefemi/asm-emulator/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a>.
+      New versions appear here within minutes of being published.
+    </p>
+    <p class="footer-copy">
+      © <span id="year"></span> Resolute Femi ·
+      <a href="https://github.com/Resolutefemi/asm-emulator" target="_blank" rel="noopener noreferrer">Source code</a>
+    </p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
