@@ -1,33 +1,85 @@
 name: "Build and Release"
 
+# Triggered either:
+#   1. By pushing a tag matching `app-v*` (e.g. `git tag app-v0.1.0 && git push --tags`)
+#   2. Manually from the Actions tab ("Run workflow") — optionally override the version
 on:
   push:
     tags:
       - "app-v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (e.g. 0.2.0). Leave empty to read from src-tauri/tauri.conf.json"
+        required: false
+        default: ""
+
+# All jobs need to create/upload to releases
+permissions:
+  contents: write
+
+# Don't cancel an in-flight release when a new tag is pushed
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  # ─────────────────────────────────────────────
-  # Desktop builds: Windows, macOS, Linux
-  # ─────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────
+  # prepare: compute the release tag once and share it with all builders.
+  # This avoids the race where each matrix job invents its own tag.
+  # ─────────────────────────────────────────────────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute release metadata
+        id: meta
+        shell: bash
+        run: |
+          # Read version from tauri.conf.json
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          # Manual trigger can override the version
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+
+          # If triggered by a tag push app-v*, use that tag name verbatim.
+          # Otherwise (workflow_dispatch), synthesize `app-v<version>`.
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="app-v${VERSION}"
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}"        >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${VERSION}"
+          echo "Resolved tag:     ${TAG}"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Desktop builds: Windows (x64), macOS (universal binary), Linux (x64)
+  # ─────────────────────────────────────────────────────────────────────
   build-desktop:
-    permissions:
-      contents: write
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
         include:
-          # macOS universal binary (Intel + Apple Silicon)
+          # macOS universal binary (Intel + Apple Silicon in one .app/.dmg)
           - platform: "macos-latest"
             args: "--target universal-apple-darwin"
             rust_targets: "aarch64-apple-darwin,x86_64-apple-darwin"
 
-          # Linux x86_64
+          # Linux x86_64 — AppImage + .deb
           - platform: "ubuntu-22.04"
             args: ""
             rust_targets: ""
 
-          # Windows x86_64
+          # Windows x86_64 — .msi + .exe (NSIS)
           - platform: "windows-latest"
             args: ""
             rust_targets: ""
@@ -41,25 +93,26 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      # Install Rust stable with optional extra targets (needed for macOS universal & Android)
       - name: Install Rust Stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.rust_targets || '' }}
+          targets: ${{ matrix.rust_targets }}
 
-      # Clear any stray Windows paths that confuse Linux/macOS linkers
-      - name: Unset Windows cargo target dir (if present)
-        run: |
-          unset CARGO_TARGET_DIR || true
+      # Speed up rebuilds by caching ~/.cargo and target/
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
 
-      # Install Linux system dependencies (Tauri v1 / WebKit2GTK 4.0)
-      - name: Install Linux Build Dependencies
+      # Tauri v2 requires WebKit2GTK 4.1 (NOT 4.0 — that's Tauri v1)
+      - name: Install Linux Build Dependencies (Tauri v2 / WebKit2GTK 4.1)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.0-dev \
+            libwebkit2gtk-4.1-dev \
             build-essential \
             curl \
             wget \
@@ -73,25 +126,34 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
-      # Build and Release (Tauri Action)
-      - name: Build and Release (Tauri Action)
+      # tauri-action builds the app, then creates a draft release on the
+      # computed tag and uploads the platform's bundle artifacts.
+      - name: Build and Upload (Tauri Action)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: app-v__VERSION__
-          releaseName: "RenASM v__VERSION__"
-          releaseBody: "Automated release of RenASM cross-platform builds."
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseName: "RenASM v${{ needs.prepare.outputs.version }}"
+          releaseBody: |
+            Automated cross-platform release of **RenASM** (8086 ASM Emulator).
+
+            Pick the asset for your platform:
+            - **Windows**: `.msi` (installer) or `.exe` (NSIS setup)
+            - **macOS**: `.dmg` (universal — works on Intel + Apple Silicon)
+            - **Linux**: `.AppImage` (portable) or `.deb` (Debian/Ubuntu)
+            - **Android**: `.apk` (see the Android asset below)
+
+            > ⚠️ macOS builds are unsigned. On first launch, right-click the app → "Open" → "Open anyway" to bypass Gatekeeper.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
 
-  # ─────────────────────────────────────────────
-  # Android APK build
-  # ─────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────
+  # Android APK build (universal + per-ABI)
+  # ─────────────────────────────────────────────────────────────────────
   build-android:
-    permissions:
-      contents: write
+    needs: prepare
     runs-on: ubuntu-latest
 
     steps:
@@ -101,14 +163,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      # Rust with all Android targets
       - name: Install Rust Stable (Android targets)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
-      # Java 17 is required by the Android Gradle toolchain
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      # Java 17 is required by the Android Gradle plugin (AGP 8+)
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
@@ -119,22 +186,21 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # Install the NDK version Tauri Android requires
-      - name: Install Android NDK
+      # NDK 27 is what current Tauri v2 expects. (NDK 25 also works if you pin it.)
+      - name: Install Android NDK 27
         run: |
-          sdkmanager --install "ndk;25.2.9519653"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
-          echo "NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
+          sdkmanager --install "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018"        >> "$GITHUB_ENV"
 
       - name: Install Frontend Dependencies
         run: npm ci
 
-      # Initialize the Android project if gen/android doesn't exist yet
-      - name: Init Android Project (if needed)
-        run: |
-          if [ ! -d "src-tauri/gen/android" ]; then
-            npx tauri android init
-          fi
+      # ALWAYS run `tauri android init` — it is idempotent and will fill in
+      # any missing gradle/build.gradle.kts/settings.gradle.kts/gradlew files
+      # that are NOT committed to the repo (only icons + manifest are committed).
+      - name: Init Android Project
+        run: npx tauri android init
 
       - name: Build Android APK
         env:
@@ -143,20 +209,22 @@ jobs:
           NDK_HOME: ${{ env.NDK_HOME }}
         run: npx tauri android build --apk
 
-      # Gather all APKs regardless of variant name
-      - name: Find APK files
-        id: find_apk
+      - name: List built APKs
         run: |
-          APK_FILES=$(find src-tauri/gen/android -name "*.apk" | tr '\n' '\n')
-          echo "Found APKs:"
-          echo "$APK_FILES"
+          echo "=== APK files ==="
+          find src-tauri/gen/android -name "*.apk" -print
 
-      - name: Upload APK to Release Draft
+      # Append APKs to the SAME draft release created by the desktop job.
+      # softprops/action-gh-release@v2 will create the release if it doesn't
+      # exist yet, or append files if it does.
+      - name: Upload APKs to Release Draft
         uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: app-v${{ github.ref_name != '' && github.ref_name || '0.1.0' }}
-          name: "RenASM"
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: "RenASM v${{ needs.prepare.outputs.version }}"
           draft: true
-          files: src-tauri/gen/android/**/*.apk
+          prerelease: false
+          fail_on_unmatched_files: false
+          files: |
+            src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+            src-tauri/gen/android/**/*.apk
