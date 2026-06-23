@@ -148,37 +148,20 @@ jobs:
       #       at install time ONLY if not already present.
       # Full: offlineInstaller — 200 MB .msi that bundles the full
       #       WebView2 runtime so install works with zero network.
+      #
+      # Why a separate .py script (not inline Python in a YAML heredoc):
+      # GitHub Actions uses PowerShell as the default shell on Windows
+      # runners, and PowerShell doesn't understand bash heredoc syntax
+      # (<<'PY' ... PY). A standalone script is shell-agnostic.
       - name: Configure Windows Lite variant (downloadBootstrapper)
         if: matrix.platform == 'windows-latest' && matrix.windows_variant == 'lite'
-        run: |
-          python3 - <<'PY'
-          import json
-          with open('src-tauri/tauri.conf.json') as f:
-              conf = json.load(f)
-          conf['bundle']['windows']['webviewInstallMode'] = {
-              'type': 'downloadBootstrapper',
-              'silent': True,
-          }
-          with open('src-tauri/tauri.conf.json', 'w') as f:
-              json.dump(conf, f, indent=2)
-          print('Configured Windows LITE variant (downloadBootstrapper)')
-          PY
+        shell: bash
+        run: python3 scripts/set-windows-variant.py lite
 
       - name: Configure Windows Full variant (offlineInstaller)
         if: matrix.platform == 'windows-latest' && matrix.windows_variant == 'full'
-        run: |
-          python3 - <<'PY'
-          import json
-          with open('src-tauri/tauri.conf.json') as f:
-              conf = json.load(f)
-          conf['bundle']['windows']['webviewInstallMode'] = {
-              'type': 'offlineInstaller',
-              'silent': True,
-          }
-          with open('src-tauri/tauri.conf.json', 'w') as f:
-              json.dump(conf, f, indent=2)
-          print('Configured Windows FULL variant (offlineInstaller)')
-          PY
+        shell: bash
+        run: python3 scripts/set-windows-variant.py full
 
       - name: Install Frontend Dependencies
         run: npm ci

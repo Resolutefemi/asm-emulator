@@ -29,7 +29,7 @@
   },
   "productName": "RenASM",
   "mainBinaryName": "RenASM",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "identifier": "com.renasm.playground",
   "plugins": {},
   "app": {
