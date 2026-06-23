@@ -192,27 +192,37 @@ jobs:
 
       # Rename Windows artifacts to disambiguate Lite vs Full.
       # Tauri's bundle output dir is src-tauri/target/release/bundle/{msi,nsis}/
+      #
+      # Note: Tauri v2 produces .msi only when webviewInstallMode is
+      # offlineInstaller/embedBootstrapper (Full variant). The Lite variant
+      # (downloadBootstrapper) produces only the NSIS .exe — no .msi — so the
+      # msi-rename block silently does nothing in Lite, which is fine.
       - name: Rename Windows artifacts (Lite suffix)
         if: matrix.platform == 'windows-latest' && matrix.windows_variant == 'lite'
         shell: pwsh
         run: |
           $bundle = "src-tauri/target/release/bundle"
-          # Rename .msi -> .msi (Lite)
-          Get-ChildItem -Path "$bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
-            $newName = $_.Name -replace '\.msi$', '-lite.msi'
-            Rename-Item $_.FullName -NewName $newName
-            Write-Host "Renamed: $($_.Name) -> $newName"
+          # Rename .msi -> -lite.msi (only exists if Tauri happened to produce one)
+          if (Test-Path "$bundle/msi") {
+            Get-ChildItem -Path "$bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+              $newName = $_.Name -replace '\.msi$', '-lite.msi'
+              Rename-Item $_.FullName -NewName $newName
+              Write-Host "Renamed: $($_.Name) -> $newName"
+            }
           }
           # Rename NSIS .exe -> -lite-setup.exe
-          Get-ChildItem -Path "$bundle/nsis" -Filter "*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
-            $newName = $_.Name -replace '-setup\.exe$', '-lite-setup.exe'
-            Rename-Item $_.FullName -NewName $newName
-            Write-Host "Renamed: $($_.Name) -> $newName"
+          if (Test-Path "$bundle/nsis") {
+            Get-ChildItem -Path "$bundle/nsis" -Filter "*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+              $newName = $_.Name -replace '-setup\.exe$', '-lite-setup.exe'
+              Rename-Item $_.FullName -NewName $newName
+              Write-Host "Renamed: $($_.Name) -> $newName"
+            }
           }
-          # List final
           Write-Host "`n=== Final Windows LITE artifacts ==="
-          Get-ChildItem -Path "$bundle/msi","$bundle/nsis" -Recurse -Filter "*.msi","*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Host "  $($_.FullName)  ($($_.Length) bytes)"
+          if (Test-Path "$bundle") {
+            Get-ChildItem -Path "$bundle" -Recurse -Include "*.msi","*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "  $($_.FullName)  ($($_.Length) bytes)"
+            }
           }
 
       - name: Rename Windows artifacts (Full suffix)
@@ -221,20 +231,26 @@ jobs:
         run: |
           $bundle = "src-tauri/target/release/bundle"
           # Rename .msi -> -full.msi
-          Get-ChildItem -Path "$bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
-            $newName = $_.Name -replace '\.msi$', '-full.msi'
-            Rename-Item $_.FullName -NewName $newName
-            Write-Host "Renamed: $($_.Name) -> $newName"
+          if (Test-Path "$bundle/msi") {
+            Get-ChildItem -Path "$bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+              $newName = $_.Name -replace '\.msi$', '-full.msi'
+              Rename-Item $_.FullName -NewName $newName
+              Write-Host "Renamed: $($_.Name) -> $newName"
+            }
           }
           # Rename NSIS .exe -> -full-setup.exe
-          Get-ChildItem -Path "$bundle/nsis" -Filter "*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
-            $newName = $_.Name -replace '-setup\.exe$', '-full-setup.exe'
-            Rename-Item $_.FullName -NewName $newName
-            Write-Host "Renamed: $($_.Name) -> $newName"
+          if (Test-Path "$bundle/nsis") {
+            Get-ChildItem -Path "$bundle/nsis" -Filter "*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+              $newName = $_.Name -replace '-setup\.exe$', '-full-setup.exe'
+              Rename-Item $_.FullName -NewName $newName
+              Write-Host "Renamed: $($_.Name) -> $newName"
+            }
           }
           Write-Host "`n=== Final Windows FULL artifacts ==="
-          Get-ChildItem -Path "$bundle/msi","$bundle/nsis" -Recurse -Filter "*.msi","*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Host "  $($_.FullName)  ($($_.Length) bytes)"
+          if (Test-Path "$bundle") {
+            Get-ChildItem -Path "$bundle" -Recurse -Include "*.msi","*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "  $($_.FullName)  ($($_.Length) bytes)"
+            }
           }
 
       # Upload the (renamed) Windows artifacts + macOS/Linux artifacts.
