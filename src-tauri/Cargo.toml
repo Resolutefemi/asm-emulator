@@ -29,9 +29,10 @@ tauri-plugin-notification = "2"
 tauri-plugin-process = "2"
 tauri-plugin-os = "2"
 tauri-plugin-updater = "2"
+# global-shortcut is desktop-only at runtime (see the cfg guard in lib.rs),
+# but it MUST be a regular dependency so Tauri's capability validator can
+# resolve `global-shortcut:default` during mobile builds too.
+tauri-plugin-global-shortcut = "2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
-
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-tauri-plugin-global-shortcut = "2"
