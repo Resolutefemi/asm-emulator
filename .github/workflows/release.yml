@@ -61,7 +61,7 @@ jobs:
           echo "Resolved tag:     ${TAG}"
 
   # ─────────────────────────────────────────────────────────────────────
-  # Desktop builds: Windows (x64), macOS (universal binary), Linux (x64)
+  # Desktop builds: Windows (Lite + Full), macOS (universal binary), Linux (x64)
   # ─────────────────────────────────────────────────────────────────────
   build-desktop:
     needs: prepare
@@ -73,16 +73,29 @@ jobs:
           - platform: "macos-latest"
             args: "--target universal-apple-darwin"
             rust_targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+            windows_variant: "none"
 
           # Linux x86_64 — AppImage + .deb
           - platform: "ubuntu-22.04"
             args: ""
             rust_targets: ""
+            windows_variant: "none"
 
-          # Windows x86_64 — .msi + .exe (NSIS)
+          # Windows x86_64 LITE — small (~9 MB) NSIS .exe that downloads
+          # WebView2 only if missing. Best for the ~90% of users on modern
+          # Windows 10/11 with internet at install time.
           - platform: "windows-latest"
             args: ""
             rust_targets: ""
+            windows_variant: "lite"
+
+          # Windows x86_64 FULL — large (~200 MB) MSI that bundles the full
+          # WebView2 runtime for offline install. For the ~10% of users on
+          # restricted networks, corporate machines, or without internet.
+          - platform: "windows-latest"
+            args: ""
+            rust_targets: ""
+            windows_variant: "full"
 
     runs-on: ${{ matrix.platform }}
 
@@ -101,10 +114,13 @@ jobs:
           targets: ${{ matrix.rust_targets }}
 
       # Speed up rebuilds by caching ~/.cargo and target/
+      # The cache key includes windows_variant so Lite and Full don't
+      # corrupt each other's build artifacts.
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> target"
+          key: ${{ matrix.windows_variant }}
 
       # Tauri v2 requires WebKit2GTK 4.1 (NOT 4.0 — that's Tauri v1)
       - name: Install Linux Build Dependencies (Tauri v2 / WebKit2GTK 4.1)
@@ -123,18 +139,60 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      # ─── Windows variant config ─────────────────────────────────────
+      # Tauri v2 only allows ONE webviewInstallMode per build. To produce
+      # both Lite and Full Windows installers, we patch tauri.conf.json
+      # per matrix job before building.
+      #
+      # Lite: downloadBootstrapper — 9 MB .exe that downloads WebView2
+      #       at install time ONLY if not already present.
+      # Full: offlineInstaller — 200 MB .msi that bundles the full
+      #       WebView2 runtime so install works with zero network.
+      - name: Configure Windows Lite variant (downloadBootstrapper)
+        if: matrix.platform == 'windows-latest' && matrix.windows_variant == 'lite'
+        run: |
+          python3 - <<'PY'
+          import json
+          with open('src-tauri/tauri.conf.json') as f:
+              conf = json.load(f)
+          conf['bundle']['windows']['webviewInstallMode'] = {
+              'type': 'downloadBootstrapper',
+              'silent': True,
+          }
+          with open('src-tauri/tauri.conf.json', 'w') as f:
+              json.dump(conf, f, indent=2)
+          print('Configured Windows LITE variant (downloadBootstrapper)')
+          PY
+
+      - name: Configure Windows Full variant (offlineInstaller)
+        if: matrix.platform == 'windows-latest' && matrix.windows_variant == 'full'
+        run: |
+          python3 - <<'PY'
+          import json
+          with open('src-tauri/tauri.conf.json') as f:
+              conf = json.load(f)
+          conf['bundle']['windows']['webviewInstallMode'] = {
+              'type': 'offlineInstaller',
+              'silent': True,
+          }
+          with open('src-tauri/tauri.conf.json', 'w') as f:
+              json.dump(conf, f, indent=2)
+          print('Configured Windows FULL variant (offlineInstaller)')
+          PY
+
       - name: Install Frontend Dependencies
         run: npm ci
 
-      # tauri-action builds the app, then creates a draft release on the
-      # computed tag and uploads the platform's bundle artifacts.
+      # tauri-action builds the app. We DON'T upload to the release from
+      # here — instead, we rename the artifacts (to disambiguate Lite vs
+      # Full Windows builds) and upload them with a separate step below.
       #
-      # LD_LIBRARY_PATH / DYLD_FALLBACK_LIBRARY_PATH: GitHub runners set
-      # these to values that confuse Rust's `std::env::join_paths` (it
-      # throws "failed to join paths from $LD_LIBRARY_PATH together").
-      # Clearing them for the build step is safe — Tauri/cargo find libs
-      # via pkg-config `-L` flags, not via these env vars.
-      - name: Build and Upload (Tauri Action)
+      # Why: Tauri names both Lite and Full Windows outputs identically
+      # (RenASM_0.2.x_x64_en-US.msi / RenASM_0.2.x_x64-setup.exe) since
+      # they share the same productName + version. If both jobs uploaded
+      # to the same release, the second upload would overwrite the first.
+      # So we suffix "-lite" or "-full" before uploading.
+      - name: Build (Tauri Action — no upload)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -143,28 +201,98 @@ jobs:
         with:
           tagName: ${{ needs.prepare.outputs.tag }}
           releaseName: "RenASM v${{ needs.prepare.outputs.version }}"
-          releaseBody: |
+          releaseDraft: true
+          prerelease: false
+          # Crucial: don't upload from tauri-action. We'll upload manually
+          # after renaming to avoid Lite/Full name collisions.
+          args: ${{ matrix.args }}
+
+      # Rename Windows artifacts to disambiguate Lite vs Full.
+      # Tauri's bundle output dir is src-tauri/target/release/bundle/{msi,nsis}/
+      - name: Rename Windows artifacts (Lite suffix)
+        if: matrix.platform == 'windows-latest' && matrix.windows_variant == 'lite'
+        shell: pwsh
+        run: |
+          $bundle = "src-tauri/target/release/bundle"
+          # Rename .msi -> .msi (Lite)
+          Get-ChildItem -Path "$bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+            $newName = $_.Name -replace '\.msi$', '-lite.msi'
+            Rename-Item $_.FullName -NewName $newName
+            Write-Host "Renamed: $($_.Name) -> $newName"
+          }
+          # Rename NSIS .exe -> -lite-setup.exe
+          Get-ChildItem -Path "$bundle/nsis" -Filter "*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+            $newName = $_.Name -replace '-setup\.exe$', '-lite-setup.exe'
+            Rename-Item $_.FullName -NewName $newName
+            Write-Host "Renamed: $($_.Name) -> $newName"
+          }
+          # List final
+          Write-Host "`n=== Final Windows LITE artifacts ==="
+          Get-ChildItem -Path "$bundle/msi","$bundle/nsis" -Recurse -Filter "*.msi","*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "  $($_.FullName)  ($($_.Length) bytes)"
+          }
+
+      - name: Rename Windows artifacts (Full suffix)
+        if: matrix.platform == 'windows-latest' && matrix.windows_variant == 'full'
+        shell: pwsh
+        run: |
+          $bundle = "src-tauri/target/release/bundle"
+          # Rename .msi -> -full.msi
+          Get-ChildItem -Path "$bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+            $newName = $_.Name -replace '\.msi$', '-full.msi'
+            Rename-Item $_.FullName -NewName $newName
+            Write-Host "Renamed: $($_.Name) -> $newName"
+          }
+          # Rename NSIS .exe -> -full-setup.exe
+          Get-ChildItem -Path "$bundle/nsis" -Filter "*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+            $newName = $_.Name -replace '-setup\.exe$', '-full-setup.exe'
+            Rename-Item $_.FullName -NewName $newName
+            Write-Host "Renamed: $($_.Name) -> $newName"
+          }
+          Write-Host "`n=== Final Windows FULL artifacts ==="
+          Get-ChildItem -Path "$bundle/msi","$bundle/nsis" -Recurse -Filter "*.msi","*-setup.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "  $($_.FullName)  ($($_.Length) bytes)"
+          }
+
+      # Upload the (renamed) Windows artifacts + macOS/Linux artifacts.
+      # For macOS and Linux, the artifacts are unchanged — only Windows
+      # got renamed above. The glob patterns handle both cases.
+      - name: Upload artifacts to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: "RenASM v${{ needs.prepare.outputs.version }}"
+          draft: true
+          prerelease: false
+          fail_on_unmatched_files: false
+          body: |
             Automated cross-platform release of **RenASM** (8086 ASM Emulator).
 
             Pick the asset for your platform:
-            - **Windows**: `.msi` (recommended — official Windows Installer,
-              bundles WebView2 offline so no internet needed at install time)
-              or `.exe` (NSIS setup, same WebView2 bundling)
-              - The installer is ~200 MB because it bundles the full WebView2
-                runtime. Once installed, the app launches without any network
-                access.
-              - Windows SmartScreen may warn on first launch (unsigned).
-                Click "More info" → "Run anyway".
+            - **Windows** — TWO installers to choose from:
+              - **Lite** (`*-lite-setup.exe`, ~9 MB) — recommended for most users.
+                Downloads WebView2 at install time ONLY if it's missing.
+                Works on modern Windows 10/11 with internet access.
+              - **Full** (`*-full.msi`, ~200 MB) — for offline/corporate networks.
+                Bundles the full WebView2 runtime so install works with zero
+                network access.
+              - SmartScreen may warn on first launch (unsigned). Click
+                "More info" → "Run anyway".
             - **macOS**: `.dmg` (universal — works on Intel + Apple Silicon)
-              - Builds are unsigned. On first launch, right-click the app →
-                "Open" → "Open anyway" to bypass Gatekeeper.
+              - Builds are unsigned. Right-click the app → "Open" → "Open anyway"
+                on first launch to bypass Gatekeeper.
             - **Linux**: `.AppImage` (portable) or `.deb` (Debian/Ubuntu)
               - For AppImage: `chmod +x RenASM_*.AppImage && ./RenASM_*.AppImage`
             - **Android**: `.apk` (signed, universal — works on arm64/arm/x86/x64)
               - Allow "Install from unknown sources" in Settings if prompted.
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+          files: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
 
   # ─────────────────────────────────────────────────────────────────────
   # Android APK build (universal + per-ABI)

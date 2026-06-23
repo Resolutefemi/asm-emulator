@@ -38,15 +38,22 @@ const PLATFORMS = [
     label: "Windows",
     icon: ICONS.windows,
     matchers: [
-      // .msi is the DEFAULT Windows download (priority 1) because:
-      //  - It's the official Windows Installer format (better integration
-      //    with Add/Remove Programs, Group Policy, repair/uninstall)
-      //  - Bundles the full WebView2 runtime offline (~200 MB) — no silent
-      //    failures due to missing internet at install time
-      //  - Same size as the .exe in our builds (both bundle WebView2)
-      { regex: /\.msi$/i, label: ".msi", priority: 1 },
-      // .exe (NSIS) is the fallback (priority 2) for users who prefer it.
-      { regex: /-setup\.exe$|\.exe$/i, label: ".exe", priority: 2 },
+      // Renamed Windows assets (dual-installer build, v0.2.5+):
+      //   RenASM_*_x64-full.msi          → Full offline MSI (priority 1)
+      //   RenASM_*_x64-lite-setup.exe    → Lite online NSIS (priority 2)
+      //   RenASM_*_x64-full-setup.exe    → Full offline NSIS (priority 3, rarely used)
+      //   RenASM_*_x64-lite.msi          → Lite online MSI (priority 4, rarely used)
+      //
+      // We RECOMMEND .msi over .exe within each tier (official Windows
+      // Installer format, better Add/Remove Programs integration).
+      // We RECOMMEND Full over Lite for guaranteed offline install.
+      { regex: /-full\.msi$/i, label: ".msi (Full)", priority: 1 },
+      { regex: /-lite-setup\.exe$/i, label: ".exe (Lite)", priority: 2 },
+      { regex: /-full-setup\.exe$/i, label: ".exe (Full)", priority: 3 },
+      { regex: /-lite\.msi$/i, label: ".msi (Lite)", priority: 4 },
+      // Legacy single-installer naming (v0.2.4 and earlier):
+      { regex: /\.msi$/i, label: ".msi", priority: 5 },
+      { regex: /-setup\.exe$|\.exe$/i, label: ".exe", priority: 6 },
     ],
   },
   {
