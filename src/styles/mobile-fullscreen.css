@@ -111,3 +111,30 @@ html[data-tauri-platform="ios"] {
   height: 100dvh !important;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   TERMINAL BORDER FIX — remove the "squared grey line at the base"
+   ═══════════════════════════════════════════════════════════════════
+   Bug: the terminal-container has border-top: 1px solid var(--border)
+   which creates a grey horizontal line at the top of the terminal
+   panel. Because the terminal only spans the editor-panel's width
+   (not the full screen — the activity bar + sidebar are to its left),
+   this line appears as a "squared grey line at the base with fixed
+   length" that doesn't reach the screen edges.
+
+   Fix: remove the terminal's top border so there's no visible
+   separator line. The terminal's distinct background color
+   (var(--bg-panel) = #161b22) already visually separates it from
+   the editor area above — no border needed.
+   ─────────────────────────────────────────────────────────────────── */
+.terminal-container {
+  border-top: none !important;
+}
+
+/* Also remove the resize handle's bottom border (the line under
+   "Drag to Resize") for the same reason — it's a fixed-width grey
+   line that doesn't reach the edges. */
+.terminal-handle {
+  border-bottom: none !important;
+}
+
+
