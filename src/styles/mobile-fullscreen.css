@@ -1,0 +1,63 @@
+/* src/styles/mobile-fullscreen.css
+ *
+ * Minimal mobile fullscreen fix — makes the app fill the entire screen
+ * on Android/iOS with NO visible borderline at the edges.
+ *
+ * The "borderline" bug: the original AppFinal.css sets
+ *   html, body, #root { background: var(--bg-darkest) }  (#010409)
+ *   .app-final           { background: var(--bg-dark) }    (#0d1117)
+ * On mobile, when the viewport doesn't perfectly fill the screen (due
+ * to safe-area insets / status bar / navigation bar), the darker
+ * #010409 shows as a visible border around the lighter #0d1117 app.
+ *
+ * Fix: unify all backgrounds to the app's color AND make html/body/#root
+ * fill the true viewport (using 100dvh for dynamic viewport height).
+ *
+ * This file is INTENTIONALLY MINIMAL — it does NOT touch:
+ *   - The debugger widget
+ *   - Any position:fixed/absolute elements
+ *   - The terminal
+ *   - Any existing layout logic
+ * It only unifies backgrounds and ensures true full-screen sizing.
+ * Scoped to screens <= 768px so desktop is completely unaffected.
+ */
+
+@media (max-width: 768px) {
+  /* Unify all backgrounds to the app's main color so there's no
+     visible seam between html/body/#root and .app-final. */
+  html,
+  body,
+  #root {
+    background: #0d1117 !important; /* var(--bg-dark) */
+  }
+
+  /* Fill the TRUE viewport — 100dvh handles Android's status bar and
+     navigation bar correctly (unlike 100vh which includes them). */
+  html,
+  body,
+  #root,
+  .app-final {
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    margin: 0 !important;
+    /* NO padding — padding here would shrink the app and re-create
+       the borderline. The app's dark background extends edge-to-edge. */
+  }
+
+  /* The app-final container should cover the entire viewport. */
+  .app-final {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+  }
+}
+
+/* Platform-specific: ensure the html background matches when Tauri
+   sets data-tauri-platform on Android/iOS. */
+html[data-tauri-platform="android"],
+html[data-tauri-platform="ios"] {
+  background: #0d1117 !important;
+}
