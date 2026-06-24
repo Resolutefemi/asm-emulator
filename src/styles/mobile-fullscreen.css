@@ -1,51 +1,35 @@
 /* src/styles/mobile-fullscreen.css
  *
- * Minimal mobile fullscreen fix — makes the app fill the entire screen
- * on Android/iOS with NO visible borderline at the edges.
+ * MOBILE-ONLY fixes. Every rule in this file is scoped to
+ * max-width: 768px so the desktop layout is NEVER affected.
  *
- * The "borderline" bug: the original AppFinal.css sets
- *   html, body, #root { background: var(--bg-darkest) }  (#010409)
- *   .app-final           { background: var(--bg-dark) }    (#0d1117)
- * On mobile, when the viewport doesn't perfectly fill the screen (due
- * to safe-area insets / status bar / navigation bar), the darker
- * #010409 shows as a visible border around the lighter #0d1117 app.
- *
- * Fix: unify all backgrounds to the app's color AND make html/body/#root
- * fill the true viewport (using 100dvh for dynamic viewport height).
- *
- * This file is INTENTIONALLY MINIMAL — it does NOT touch:
- *   - The debugger widget
- *   - Any position:fixed/absolute elements
- *   - The terminal
- *   - Any existing layout logic
- * It only unifies backgrounds and ensures true full-screen sizing.
- * Scoped to screens <= 768px so desktop is completely unaffected.
+ * This file does NOT touch: the debugger, the terminal resize,
+ * the desktop flexbox layout, or any position:fixed elements.
  */
 
+/* ═══════════════════════════════════════════════════════════════════
+   1. MOBILE FULLSCREEN — eliminate the borderline at screen edges
+   ═══════════════════════════════════════════════════════════════════
+   Bug: html/body/#root had background #010409 (darker) while .app-final
+   had background #0d1117 (lighter). On mobile, the darker color showed
+   as a visible border around the app.
+   Fix: unify all backgrounds to #0d1117 and fill the true viewport. */
 @media (max-width: 768px) {
-  /* Unify all backgrounds to the app's main color so there's no
-     visible seam between html/body/#root and .app-final. */
   html,
   body,
   #root {
-    background: #0d1117 !important; /* var(--bg-dark) */
+    background: #0d1117 !important;
   }
 
-  /* Fill the TRUE viewport — 100dvh handles Android's status bar and
-     navigation bar correctly (unlike 100vh which includes them). */
   html,
   body,
   #root,
   .app-final {
     width: 100vw !important;
-    height: 100vh !important;
     height: 100dvh !important;
     margin: 0 !important;
-    /* NO padding — padding here would shrink the app and re-create
-       the borderline. The app's dark background extends edge-to-edge. */
   }
 
-  /* The app-final container should cover the entire viewport. */
   .app-final {
     position: fixed !important;
     top: 0 !important;
@@ -55,86 +39,28 @@
   }
 }
 
-/* Platform-specific: ensure the html background matches when Tauri
-   sets data-tauri-platform on Android/iOS. */
+/* Platform-specific background for Tauri mobile */
 html[data-tauri-platform="android"],
 html[data-tauri-platform="ios"] {
   background: #0d1117 !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   VERTICAL DIVIDER FIX — applies to ALL screen sizes (desktop + mobile)
+   2. MOBILE TERMINAL — remove the grey border line at the base
    ═══════════════════════════════════════════════════════════════════
-   Bug: the vertical divider line on the left side (activity-bar's
-   border-right) was cutting off and not reaching the bottom of the
-   screen, leaving an empty space at the bottom.
-
-   Root cause: the activity-bar relies on its parent (.main-content)
-   having flex:1 to stretch vertically, but the parent chain used
-   100vh (which on mobile includes the status bar) instead of 100dvh.
-   Also, the activity-bar itself had no explicit height/stretch.
-
-   Fix: make the activity-bar stretch to fill its parent's full height,
-   and ensure the parent chain uses 100dvh so it matches the actual
-   visible viewport.
-   ─────────────────────────────────────────────────────────────────── */
-
-/* Ensure the activity-bar fills its parent's height — its border-right
-   divider will then stretch all the way to the bottom. */
-.activity-bar {
-  align-self: stretch !important; /* fill parent's cross-axis (height) */
-  height: 100% !important;        /* explicit fallback */
-  min-height: 100% !important;    /* never shrink below full height */
-}
-
-/* Ensure the main-content container also fills the full app height
-   so the activity-bar inside it has something to stretch against. */
-.main-content {
-  height: 100% !important;
-  min-height: 100% !important;
-}
-
-/* On mobile, the main-content switches to column layout. Make sure
-   the activity-bar (which becomes horizontal) still spans the full
-   width so its border reaches both edges. */
+   Bug: terminal-container had border-top (grey line) that only spanned
+   the terminal's width, not the full screen, looking like a fixed-
+   length grey line at the base.
+   Fix: remove it on mobile only. Desktop keeps its original styling. */
 @media (max-width: 768px) {
-  .activity-bar {
-    width: 100% !important;
-    height: auto !important; /* let it size to its content in column mode */
-    min-height: unset !important;
+  .terminal-container {
+    border-top: none !important;
+  }
+
+  .terminal-handle {
+    border-bottom: none !important;
   }
 }
 
-/* Desktop: ensure the app-final uses 100dvh too (not just mobile) so
-   the divider reaches the true bottom of the viewport on all platforms. */
-.app-final {
-  height: 100dvh !important;
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   TERMINAL BORDER FIX — remove the "squared grey line at the base"
-   ═══════════════════════════════════════════════════════════════════
-   Bug: the terminal-container has border-top: 1px solid var(--border)
-   which creates a grey horizontal line at the top of the terminal
-   panel. Because the terminal only spans the editor-panel's width
-   (not the full screen — the activity bar + sidebar are to its left),
-   this line appears as a "squared grey line at the base with fixed
-   length" that doesn't reach the screen edges.
-
-   Fix: remove the terminal's top border so there's no visible
-   separator line. The terminal's distinct background color
-   (var(--bg-panel) = #161b22) already visually separates it from
-   the editor area above — no border needed.
-   ─────────────────────────────────────────────────────────────────── */
-.terminal-container {
-  border-top: none !important;
-}
-
-/* Also remove the resize handle's bottom border (the line under
-   "Drag to Resize") for the same reason — it's a fixed-width grey
-   line that doesn't reach the edges. */
-.terminal-handle {
-  border-bottom: none !important;
-}
-
-
+/* NO desktop rules below this point.
+   Desktop uses the original AppFinal.css / ActivityBar.css as-is. */
