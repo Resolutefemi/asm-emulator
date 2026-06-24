@@ -541,8 +541,6 @@ export class Emulator8086 {
 
     // ----- PASS 1: collect labels, EQU constants, data, compute addresses -----
     let currentAddr = 0x100; // COM model default
-    let inDataSegment = false;
-    let inCodeSegment = true;
     let pendingInstrs = []; // instructions to assemble in pass 2
 
     // First: scan for org directive (must come first logically, but we'll honor it wherever)
@@ -567,6 +565,22 @@ export class Emulator8086 {
     // Reset currentAddr for actual pass
     currentAddr = this.codeStartAddr;
 
+    // For .MODEL SMALL / EXE programs: data definitions go into a separate
+    // data area (starting at 0x0000), code goes to 0x100 (the entry point).
+    // This prevents data bytes from being executed as code.
+    // In COM programs (org 100h), data and code share the same segment
+    // because the user explicitly put data before `jmp start`.
+    let dataAddr = 0x0000;        // data segment starts at offset 0
+    let codeAddr = this.codeStartAddr; // code segment starts at 0x100
+    let inDataSegment = false;
+    let inCodeSegment = true;
+    // Track which segment we're in so data defs vs code go to the right addr
+    let activeAddr = codeAddr; // pointer that switches between dataAddr/codeAddr
+
+    // @DATA and @data resolve to 0 (the data segment base in our flat model)
+    this.symbolTable['@data'] = 0;
+    this.symbolTable['@code'] = this.codeStartAddr;
+
     // Process tokens
     for (const tok of tokens) {
       const mnem = tok.mnemonic ? tok.mnemonic.toLowerCase() : null;
@@ -581,27 +595,28 @@ export class Emulator8086 {
         mnem === 'extern' || mnem === 'global' || mnem === 'include' ||
         mnem === 'label'
       )) {
-        // Track segment context
+        // Track segment context — switch activeAddr between data and code areas
         if (mnem === '.data' || (mnem === 'segment' && /data/i.test(tok.operands[0] || ''))) {
           inDataSegment = true; inCodeSegment = false;
+          activeAddr = dataAddr;  // data definitions go to the data area
         } else if (mnem === '.code' || (mnem === 'segment' && /code/i.test(tok.operands[0] || ''))) {
           inDataSegment = false; inCodeSegment = true;
+          activeAddr = codeAddr;  // code goes to the code area (0x100)
         }
         // 'proc name' — the label was already extracted by tokenizer; register it
         if (tok.label) {
-          this.symbolTable[tok.label.toLowerCase()] = currentAddr;
+          this.symbolTable[tok.label.toLowerCase()] = activeAddr;
+        }
+        // For 'end' directive, check if it specifies an entry point label
+        if (mnem === 'end' && tok.operands[0]) {
+          const entryLabel = tok.operands[0].toLowerCase();
+          if (this.symbolTable.hasOwnProperty(entryLabel)) {
+            this.entryPoint = this.symbolTable[entryLabel];
+          }
         }
         continue;
       }
 
-      // EQU constant
-      if (mnem === 'equ') {
-        // Pattern: NAME EQU value  — but tokenizer would have put NAME as mnemonic
-        // Actually if "FOO equ 5", tokenizer sees mnemonic=FOO, operands=['equ','5']? No.
-        // Let's handle: if mnemonic is identifier and operands[0] starts with 'equ'
-        // Better: detect "name equ value" pattern explicitly
-        continue;
-      }
       // Detect "NAME equ value" — tokenizer would put NAME as mnemonic, "equ value" as operands
       // So check: if mnem is not a known instruction and operands[0] starts with 'equ'
       if (tok.mnemonic && !isKnownInstruction(mnem) && tok.operands[0] && /^equ\b/i.test(tok.operands[0])) {
@@ -610,6 +625,29 @@ export class Emulator8086 {
         if (v !== null && !isNaN(v)) {
           this.symbolTable[tok.mnemonic.toLowerCase()] = v;
         }
+        continue;
+      }
+
+      // Detect "NAME PROC" / "NAME ENDP" / "NAME SEGMENT" / "NAME ENDS"
+      // The tokenizer puts NAME as the mnemonic and PROC/ENDP/SEGMENT/ENDS
+      // as the first operand. We need to treat NAME as a label pointing to
+      // the current address, and skip the PROC/ENDP/SEGMENT/ENDS keyword.
+      if (tok.mnemonic && !isKnownInstruction(mnem) && tok.operands[0] &&
+          /^(proc|endp|segment|ends)\b/i.test(tok.operands[0])) {
+        const directive = tok.operands[0].match(/^(proc|endp|segment|ends)/i)[1].toLowerCase();
+        if (directive === 'proc' || directive === 'segment') {
+          // NAME PROC or NAME SEGMENT — register NAME as a label at current addr
+          this.symbolTable[mnem] = activeAddr;
+          // For SEGMENT, track data vs code context
+          if (/data/i.test(tok.operands[0])) {
+            inDataSegment = true; inCodeSegment = false;
+            activeAddr = dataAddr;
+          } else if (/code/i.test(tok.operands[0])) {
+            inDataSegment = false; inCodeSegment = true;
+            activeAddr = codeAddr;
+          }
+        }
+        // ENDP / ENDS — just skip, nothing to do
         continue;
       }
 
@@ -633,7 +671,7 @@ export class Emulator8086 {
           const directive = dataMatch[1].toLowerCase();
           const valuesStr = dataMatch[2];
           const labelName = tok.mnemonic.toLowerCase();
-          this.symbolTable[labelName] = currentAddr;
+          this.symbolTable[labelName] = activeAddr;
           const elemSize = directive === 'db' ? 1 : directive === 'dw' ? 2 : 4;
           this.symbolSizes[labelName] = elemSize;
           const values = parseDataValues(valuesStr);
@@ -641,16 +679,16 @@ export class Emulator8086 {
             if (typeof v === 'object' && v.symbol) {
               // Forward reference — write 0 now, patch later
               this._pendingPatches = this._pendingPatches || [];
-              this._pendingPatches.push({ addr: currentAddr, symbol: v.symbol, size: elemSize });
-              if (elemSize === 1) this.writeByte(currentAddr, 0);
-              else if (elemSize === 2) this.writeWord(currentAddr, 0);
-              else this.writeDword(currentAddr, 0);
+              this._pendingPatches.push({ addr: activeAddr, symbol: v.symbol, size: elemSize });
+              if (elemSize === 1) this.writeByte(activeAddr, 0);
+              else if (elemSize === 2) this.writeWord(activeAddr, 0);
+              else this.writeDword(activeAddr, 0);
             } else {
-              if (elemSize === 1) this.writeByte(currentAddr, v);
-              else if (elemSize === 2) this.writeWord(currentAddr, v);
-              else this.writeDword(currentAddr, v);
+              if (elemSize === 1) this.writeByte(activeAddr, v);
+              else if (elemSize === 2) this.writeWord(activeAddr, v);
+              else this.writeDword(activeAddr, v);
             }
-            currentAddr = toU16(currentAddr + elemSize);
+            activeAddr = toU16(activeAddr + elemSize);
           }
           continue;
         }
@@ -659,42 +697,42 @@ export class Emulator8086 {
       // Also handle: label was set + mnemonic is db/dw/dd
       // Again, rejoin operands.
       if (tok.label && (mnem === 'db' || mnem === 'dw' || mnem === 'dd')) {
-        this.symbolTable[tok.label.toLowerCase()] = currentAddr;
+        this.symbolTable[tok.label.toLowerCase()] = activeAddr;
         const elemSize = mnem === 'db' ? 1 : mnem === 'dw' ? 2 : 4;
         this.symbolSizes[tok.label.toLowerCase()] = elemSize;
         const values = parseDataValues(tok.operands.join(','));
         for (const v of values) {
           if (typeof v === 'object' && v.symbol) {
             this._pendingPatches = this._pendingPatches || [];
-            this._pendingPatches.push({ addr: currentAddr, symbol: v.symbol, size: elemSize });
-            if (elemSize === 1) this.writeByte(currentAddr, 0);
-            else if (elemSize === 2) this.writeWord(currentAddr, 0);
-            else this.writeDword(currentAddr, 0);
+            this._pendingPatches.push({ addr: activeAddr, symbol: v.symbol, size: elemSize });
+            if (elemSize === 1) this.writeByte(activeAddr, 0);
+            else if (elemSize === 2) this.writeWord(activeAddr, 0);
+            else this.writeDword(activeAddr, 0);
           } else {
-            if (elemSize === 1) this.writeByte(currentAddr, v);
-            else if (elemSize === 2) this.writeWord(currentAddr, v);
-            else this.writeDword(currentAddr, v);
+            if (elemSize === 1) this.writeByte(activeAddr, v);
+            else if (elemSize === 2) this.writeWord(activeAddr, v);
+            else this.writeDword(activeAddr, v);
           }
-          currentAddr = toU16(currentAddr + elemSize);
+          activeAddr = toU16(activeAddr + elemSize);
         }
         continue;
       }
 
       // Label-only line (no mnemonic)
       if (tok.label && !tok.mnemonic) {
-        this.symbolTable[tok.label.toLowerCase()] = currentAddr;
+        this.symbolTable[tok.label.toLowerCase()] = activeAddr;
         continue;
       }
 
       // Label + instruction
       if (tok.label) {
-        this.symbolTable[tok.label.toLowerCase()] = currentAddr;
+        this.symbolTable[tok.label.toLowerCase()] = activeAddr;
       }
 
-      // Instruction — record with address, advance currentAddr (rough — real sizing happens in pass 2)
+      // Instruction — record with address, advance activeAddr (rough — real sizing happens in pass 2)
       if (tok.mnemonic) {
         pendingInstrs.push({
-          addr: currentAddr,
+          addr: activeAddr,
           mnemonic: mnem,
           operands: tok.operands,
           raw: tok.raw,
@@ -708,11 +746,11 @@ export class Emulator8086 {
         // We DO need a mapping from address back to instruction index, but since
         // we execute by instruction index (not by IP byte offset), we just track
         // instruction index per address.
-        this.addrToInstrIdx[currentAddr] = pendingInstrs.length - 1;
+        this.addrToInstrIdx[activeAddr] = pendingInstrs.length - 1;
         // Advance address by a nominal 3 bytes (avg instruction size)
         // Actually, since we use instruction-index-based execution, address only
         // matters for `org 100h` (where data starts vs code starts).
-        currentAddr = toU16(currentAddr + 1);
+        activeAddr = toU16(activeAddr + 1);
       }
     }
 
