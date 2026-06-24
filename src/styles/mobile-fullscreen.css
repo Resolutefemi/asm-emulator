@@ -61,3 +61,53 @@ html[data-tauri-platform="android"],
 html[data-tauri-platform="ios"] {
   background: #0d1117 !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   VERTICAL DIVIDER FIX — applies to ALL screen sizes (desktop + mobile)
+   ═══════════════════════════════════════════════════════════════════
+   Bug: the vertical divider line on the left side (activity-bar's
+   border-right) was cutting off and not reaching the bottom of the
+   screen, leaving an empty space at the bottom.
+
+   Root cause: the activity-bar relies on its parent (.main-content)
+   having flex:1 to stretch vertically, but the parent chain used
+   100vh (which on mobile includes the status bar) instead of 100dvh.
+   Also, the activity-bar itself had no explicit height/stretch.
+
+   Fix: make the activity-bar stretch to fill its parent's full height,
+   and ensure the parent chain uses 100dvh so it matches the actual
+   visible viewport.
+   ─────────────────────────────────────────────────────────────────── */
+
+/* Ensure the activity-bar fills its parent's height — its border-right
+   divider will then stretch all the way to the bottom. */
+.activity-bar {
+  align-self: stretch !important; /* fill parent's cross-axis (height) */
+  height: 100% !important;        /* explicit fallback */
+  min-height: 100% !important;    /* never shrink below full height */
+}
+
+/* Ensure the main-content container also fills the full app height
+   so the activity-bar inside it has something to stretch against. */
+.main-content {
+  height: 100% !important;
+  min-height: 100% !important;
+}
+
+/* On mobile, the main-content switches to column layout. Make sure
+   the activity-bar (which becomes horizontal) still spans the full
+   width so its border reaches both edges. */
+@media (max-width: 768px) {
+  .activity-bar {
+    width: 100% !important;
+    height: auto !important; /* let it size to its content in column mode */
+    min-height: unset !important;
+  }
+}
+
+/* Desktop: ensure the app-final uses 100dvh too (not just mobile) so
+   the divider reaches the true bottom of the viewport on all platforms. */
+.app-final {
+  height: 100dvh !important;
+}
+
