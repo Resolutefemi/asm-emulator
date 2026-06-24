@@ -360,6 +360,17 @@ export class Emulator8086 {
     this.maxSteps = 100000;
     this.codeStartAddr = 0x100;
     this.orgSet = false;
+
+    // I/O ports — used by the DebuggerWidget (robot/traffic/calc/machine).
+    // OUT <port>, <val> writes here; IN <dest>, <port> reads from here.
+    this.ports = {};
+    // Callback set by DebuggerWidget: onPortWrite(port, value)
+    // NOTE: preserve across reset() — the DebuggerWidget sets this once
+    // and expects it to survive load()/parse() calls. Only clear it in
+    // the constructor (which already happens via field initialization).
+    if (!this.onPortWrite) {
+      this.onPortWrite = null;
+    }
     this.segment = 0; // currently DS (and CS, ES, SS for COM model)
   }
 
@@ -512,6 +523,12 @@ export class Emulator8086 {
   /* ============================================================
      Loader / Assembler
      ============================================================ */
+
+  // Alias for load() — kept for backward compatibility with the
+  // terminal command handler in AppFinal.jsx which calls .parse().
+  parse(asmCode) {
+    return this.load(asmCode);
+  }
 
   load(asmCode) {
     this.reset();
@@ -1464,9 +1481,27 @@ export class Emulator8086 {
     }
   }
 
-  /* ----- I/O ports (stub — no real devices) ----- */
-  _in(dest, port) { this.setOperandValue(dest, 0xFF); }
-  _out(port, src) { /* no-op */ }
+  /* ----- I/O ports ----- */
+  // The ports object holds values written by OUT instructions and read
+  // by IN instructions. The DebuggerWidget (robot simulator, traffic
+  // lights, calculator, machine controls) watches this via onPortWrite.
+  // Format: { portNumber: value }
+  _in(dest, port) {
+    const portNum = this.getOperandValue(port, 1);
+    const val = this.ports[portNum] !== undefined ? this.ports[portNum] : 0xFF;
+    this.setOperandValue(dest, val);
+  }
+
+  _out(port, src) {
+    const portNum = this.getOperandValue(port, 1);
+    const val = this.getOperandValue(src, 1);
+    this.ports[portNum] = val;
+    // Notify the DebuggerWidget (robot/traffic/calc/machine) that a port
+    // was written, so it can update its visual state.
+    if (typeof this.onPortWrite === 'function') {
+      try { this.onPortWrite(portNum, val); } catch { /* ignore listener errors */ }
+    }
+  }
 
   /* ----- String operations ----- */
   _stringOp(op, isRep) {
