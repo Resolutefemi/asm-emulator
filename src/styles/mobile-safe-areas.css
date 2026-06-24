@@ -6,107 +6,156 @@
  * (and on devices with notches, behind the notch cutout). The top icons
  * bar / mobile navbar ends up hidden behind the system status bar.
  *
- * Solution: use CSS environment variables to add safe-area padding so
- * content respects the system bars. The env() values are populated by
- * Android's WebView when the viewport meta tag includes
- * `viewport-fit=cover` (which Vite sets by default).
+ * Solution: TRUE full-screen with safe-area-aware inner padding.
+ *
+ * Key insight: the app's dark background must extend edge-to-edge (all
+ * the way to the screen edges, behind the status bar) so there's no
+ * visible "borderline" gap. Only the INTERACTIVE elements (navbar,
+ * toolbar, content) get safe-area padding so they don't overlap the
+ * system bars.
+ *
+ * Anti-pattern (what we had before): padding the body itself. That
+ * shrinks the body's content area, leaving a visible gap where the
+ * body's background extends but the app's background doesn't.
  *
  * These styles only apply on mobile (max-width: 768px) so desktop
  * layouts are unaffected.
  */
 
-/* ── Root container: respect safe areas on all sides ────────────── */
+/* ── TRUE full-screen: html, body, #root, .app-final all fill viewport ── */
 @media (max-width: 768px) {
   html,
   body,
-  #root {
-    /* Use the full viewport including the area behind system bars
-       (required for env(safe-area-inset-*) to be non-zero). */
-    width: 100vw;
-    height: 100vh;
-    height: 100dvh; /* dynamic viewport height — handles Android's resize-on-keyboard */
+  #root,
+  .app-final {
+    /* Fill the ENTIRE viewport — edge-to-edge, including the area
+       behind system bars. NO padding, NO margin, NO calc() that
+       shrinks the dimensions. The dark background extends all the
+       way to the screen edges. */
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important; /* dynamic viewport height — handles Android's resize-on-keyboard */
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
-  body {
-    /* Add safe-area padding so content doesn't render under the status
-       bar, navigation bar, or notch cutout. */
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    padding-left: env(safe-area-inset-left, 0px);
-    padding-right: env(safe-area-inset-right, 0px);
-
-    /* Make sure background extends behind the system bars (so the
-       status bar shows the app's dark color, not white). */
+  html {
+    /* The html element's background is what shows behind the status
+       bar and navigation bar. Make it match the app's dark theme so
+       there's no visible "borderline" between system bars and app. */
     background: #0d1117;
   }
 
-  /* The main app container should fill the (now-padded) body and use
-     flexbox so children stack vertically. */
-  .app-final {
-    height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
-    height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
-    width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)) !important;
+  body {
+    /* NO padding on body — padding here would create a visible gap.
+       The body fills the full viewport; its background extends
+       edge-to-edge. */
+    background: #0d1117;
+    overflow: hidden;
   }
 
-  /* Any element that uses position: fixed / absolute at top:0 needs
-     to be pushed down by the status bar height. The most reliable way
-     is to add the safe-area-inset-top to its `top` property. */
+  /* The app container fills the full viewport (no shrinkage). */
+  .app-final {
+    position: fixed !important;
+    inset: 0 !important; /* top:0; right:0; bottom:0; left:0 — full viewport */
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+  }
+
+  /* ── INNER elements: add safe-area padding so interactive UI stays
+     clear of the status bar / notch / navigation bar. The element's
+     BACKGROUND still extends edge-to-edge (because we use padding,
+     not margin), but the CONTENT inside is pushed inward. ── */
+
+  /* Top-fixed elements: their background extends to the top edge
+     (full-screen look), but their inner content is pushed down by
+     the status bar height. */
   .mobile-navbar,
   .activity-bar,
   .top-bar,
   .app-header,
-  .main-toolbar {
-    top: env(safe-area-inset-top, 0px) !important;
+  .main-toolbar,
+  .tab-bar,
+  .workspace-tab-bar {
+    padding-top: env(safe-area-inset-top, 0px) !important;
+    /* DON'T change `top` — that would create a gap above the element.
+       The element stays at top:0 (full-screen), padding pushes content
+       down inside it. */
   }
 
-  /* Bottom-fixed elements (mobile nav bar at bottom) need the bottom inset */
+  /* Bottom-fixed elements: background extends to bottom edge, content
+     pushed up by navigation bar height. */
   .mobile-navbar.bottom,
   .bottom-panel,
-  .status-bar {
-    bottom: env(safe-area-inset-bottom, 0px) !important;
+  .status-bar,
+  .terminal-container:not(.maximized) {
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
   }
 
-  /* The maximized terminal overlay also needs to respect safe areas */
+  /* Left/right edges (for landscape mode with notches) */
+  .activity-bar {
+    padding-left: env(safe-area-inset-left, 0px) !important;
+  }
+
+  /* The maximized terminal overlay — full screen, with inner padding */
   .terminal-container.maximized {
-    top: env(safe-area-inset-top, 0px) !important;
-    bottom: env(safe-area-inset-bottom, 0px) !important;
-    left: env(safe-area-inset-left, 0px) !important;
-    right: env(safe-area-inset-right, 0px) !important;
-    height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
-    width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)) !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    padding-top: env(safe-area-inset-top, 0px) !important;
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+    padding-left: env(safe-area-inset-left, 0px) !important;
+    padding-right: env(safe-area-inset-right, 0px) !important;
+    z-index: 9997 !important;
   }
 
-  /* Splash screen / workspace initializer overlay — push down too */
+  /* Splash screen / workspace initializer overlay — full screen,
+     inner content centered within the safe area. */
   .workspace-initializer,
   .splash-screen {
+    position: fixed !important;
+    inset: 0 !important;
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
   }
 
-  /* Modals and dialogs — make sure they don't overlap status bar */
+  /* Modals and dialogs — inner content respects safe areas */
   .modal,
   .modal-overlay,
   .dialog-overlay {
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  /* Code editor area — push down from top bar (which now has status
+     bar padding) so the editor doesn't start under the status bar. */
+  .editor-container,
+  .code-editor-wrapper,
+  .cm-editor {
+    padding-top: env(safe-area-inset-top, 0px);
   }
 }
 
-/* ── Detect Android specifically (via Tauri's platform class) ──────
- * Tauri v2 adds a `data-tauri-platform` attribute to <html> when running
- * on mobile. We can target it for Android-specific tweaks.
+/* ── Platform-specific fallbacks ────────────────────────────────────
+ * Tauri v2 adds a `data-tauri-platform` attribute to <html> when
+ * running on mobile. We can target it for platform-specific tweaks.
+ * These only set the html BACKGROUND — no body padding (which would
+ * create the borderline gap).
  */
-html[data-tauri-platform="android"] body {
-  /* Android's status bar is typically 24-28dp tall. The env() value
-     handles this automatically, but as a fallback: */
-  padding-top: env(safe-area-inset-top, 28px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+html[data-tauri-platform="android"] {
+  background: #0d1117;
 }
 
-html[data-tauri-platform="ios"] body {
-  /* iOS notches can be deeper — env() handles this too. */
-  padding-top: env(safe-area-inset-top, 47px);
-  padding-bottom: env(safe-area-inset-bottom, 34px);
+html[data-tauri-platform="ios"] {
+  background: #0d1117;
 }
