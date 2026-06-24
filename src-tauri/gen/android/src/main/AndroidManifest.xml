@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    android:versionCode="9"
-    android:versionName="0.2.7">
+    android:versionCode="10"
+    android:versionName="0.2.8">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -53,5 +53,21 @@
         </provider>
 
     </application>
+
+    <!--
+      Edge-to-edge fix:
+      On Android 15+ (API 35+), the system enforces edge-to-edge by default,
+      meaning app content renders behind the status bar and navigation bar.
+      Setting targetSdkVersion below 35 disables this enforcement, but the
+      cleaner long-term fix is to handle safe-area insets in CSS (see
+      src/styles/mobile-safe-areas.css) AND use fitsSystemWindows in the
+      native activity.
+
+      The `android:windowLayoutInDisplayCutoutMode` attribute on the
+      application tag tells the system how to handle display cutouts
+      (notches). `shortEdges` allows content to render in the cutout area
+      but our CSS env(safe-area-inset-*) padding ensures the actual UI
+      elements stay clear of it.
+    -->
 
 </manifest>

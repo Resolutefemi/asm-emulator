@@ -15,6 +15,7 @@ import SettingsModal, { DEFAULT_SETTINGS, applySettings } from './components/Set
 import TabBar from './components/TabBar';
 import './styles/AppFinal.css';
 import './styles/ActivityBar.css';
+import './styles/mobile-safe-areas.css';
 
 const SAMPLE_PROJECTS = [
   {

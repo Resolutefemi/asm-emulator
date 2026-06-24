@@ -166,28 +166,27 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
-      # tauri-action builds the app. We DON'T upload to the release from
-      # here — instead, we rename the artifacts (to disambiguate Lite vs
-      # Full Windows builds) and upload them with a separate step below.
+      # tauri-action builds the app. We DON'T pass `tagName` so the action
+      # only builds — it doesn't try to create/upload to a release. We
+      # handle release creation + upload separately after renaming the
+      # Windows artifacts (to disambiguate Lite vs Full).
       #
       # Why: Tauri names both Lite and Full Windows outputs identically
       # (RenASM_0.2.x_x64_en-US.msi / RenASM_0.2.x_x64-setup.exe) since
       # they share the same productName + version. If both jobs uploaded
       # to the same release, the second upload would overwrite the first.
       # So we suffix "-lite" or "-full" before uploading.
-      - name: Build (Tauri Action — no upload)
+      - name: Build (Tauri Action — build only, no release upload)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LD_LIBRARY_PATH: ""
           DYLD_FALLBACK_LIBRARY_PATH: ""
         with:
-          tagName: ${{ needs.prepare.outputs.tag }}
-          releaseName: "RenASM v${{ needs.prepare.outputs.version }}"
-          releaseDraft: true
-          prerelease: false
-          # Crucial: don't upload from tauri-action. We'll upload manually
-          # after renaming to avoid Lite/Full name collisions.
+          # Crucial: NO tagName here. If tagName is set, tauri-action
+          # will create a release and upload artifacts with their
+          # original names — colliding with the renamed ones we upload
+          # manually below.
           args: ${{ matrix.args }}
 
       # Rename Windows artifacts to disambiguate Lite vs Full.

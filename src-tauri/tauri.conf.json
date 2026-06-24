@@ -29,7 +29,7 @@
   },
   "productName": "RenASM",
   "mainBinaryName": "RenASM",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "identifier": "com.renasm.playground",
   "plugins": {},
   "app": {
@@ -42,7 +42,9 @@
         "minWidth": 800,
         "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false
       }
     ],
     "security": {
