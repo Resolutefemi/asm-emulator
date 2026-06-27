@@ -62,5 +62,59 @@ html[data-tauri-platform="ios"] {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   3. MOBILE EDITOR — full-screen, edge-to-edge, click anywhere to type
+   ═══════════════════════════════════════════════════════════════════
+   Bug: on mobile, .editor-panel had flex: 0 0 50% — the editor only
+   took HALF the screen. The other half was the CPU/output panel.
+   The user wants the editor to fill the entire screen so they can
+   click anywhere to focus and type.
+
+   Fix: make the editor-panel fill the full available height, hide the
+   right-section (CPU/output panels are accessible via the mobile
+   bottom bar buttons), and ensure the CodeMirror scroller fills the
+   remaining space. */
+@media (max-width: 768px) {
+  /* Editor panel fills ALL available height (not just 50%) */
+  .editor-panel {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    border-bottom: none !important;
+    border-left: none !important;
+  }
+
+  /* Hide the right-section (CPU panel, reference panel) on mobile.
+     These are accessible via the mobile bottom bar buttons which
+     open them as full-screen modals. */
+  .right-section {
+    display: none !important;
+  }
+
+  /* Make the CodeMirror editor fill its container height */
+  .editor-panel .cm-editor {
+    height: 100% !important;
+    flex: 1 !important;
+  }
+
+  /* The CodeMirror scroller should fill the space and be clickable */
+  .cm-scroller {
+    height: 100% !important;
+    min-height: 200px !important;
+    overflow: auto !important;
+  }
+
+  /* Ensure the panel-header (filename + Run button) stays at top */
+  .panel-header {
+    flex-shrink: 0 !important;
+  }
+
+  /* The editor content wrapper should also fill available height */
+  .editor-panel > div:last-child {
+    flex: 1 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+}
+
 /* NO desktop rules below this point.
    Desktop uses the original AppFinal.css / ActivityBar.css as-is. */
