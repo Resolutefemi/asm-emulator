@@ -81,6 +81,7 @@ html[data-tauri-platform="ios"] {
     min-height: 0 !important;
     border-bottom: none !important;
     border-left: none !important;
+    height: 100% !important;
   }
 
   /* Hide the right-section (CPU panel, reference panel) on mobile.
@@ -90,29 +91,47 @@ html[data-tauri-platform="ios"] {
     display: none !important;
   }
 
-  /* Make the CodeMirror editor fill its container height */
-  .editor-panel .cm-editor {
-    height: 100% !important;
-    flex: 1 !important;
-  }
-
-  /* The CodeMirror scroller should fill the space and be clickable */
-  .cm-scroller {
-    height: 100% !important;
-    min-height: 200px !important;
-    overflow: auto !important;
-  }
-
   /* Ensure the panel-header (filename + Run button) stays at top */
   .panel-header {
     flex-shrink: 0 !important;
   }
 
-  /* The editor content wrapper should also fill available height */
-  .editor-panel > div:last-child {
-    flex: 1 !important;
+  /* The editor content wrapper (the div containing CodeMirror) must
+     fill ALL remaining vertical space between the panel-header and
+     the bottom of the screen. */
+  .editor-panel > div:last-child,
+  .editor-panel .cm-wrap,
+  .editor-panel .cm-editor {
+    flex: 1 1 auto !important;
     min-height: 0 !important;
-    overflow: hidden !important;
+    height: 100% !important;
+    max-height: none !important;
+  }
+
+  /* The CodeMirror editor itself fills its container */
+  .cm-editor {
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  /* The gutter (line numbers) extends all the way to the bottom */
+  .cm-gutters {
+    height: 100% !important;
+    min-height: 100% !important;
+  }
+
+  /* The scroller (code entry area) extends all the way to the bottom */
+  .cm-scroller {
+    flex: 1 1 auto !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: auto !important;
+  }
+
+  /* The content area inside the scroller */
+  .cm-content {
+    min-height: 100% !important;
   }
 }
 
